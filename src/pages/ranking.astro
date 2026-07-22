@@ -1,0 +1,23 @@
+---
+import Base from '../layouts/Base.astro';
+import RankingTable from '../components/RankingTable.tsx';
+import { getRanking } from '../lib/queries';
+
+export const prerender = false;
+
+const tours = ['ATP', 'WTA'] as const;
+const scopes = ['all', 'hard', 'clay', 'grass'] as const;
+const ranking: Record<string, Awaited<ReturnType<typeof getRanking>>> = {};
+await Promise.all(
+  tours.flatMap((tour) =>
+    scopes.map(async (scope) => {
+      ranking[`${tour}:${scope}`] = await getRanking(tour, scope, 30);
+    }),
+  ),
+);
+---
+
+<Base subtitle="Rating Elo por superficie. ATP y WTA son escalas independientes." active="ranking">
+  <h2 class="mb-4 text-lg font-semibold">Ranking Elo</h2>
+  <RankingTable client:load data={ranking} />
+</Base>

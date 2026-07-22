@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+import { getStats, getCalibration } from '../lib/queries';
+
+export const prerender = false;
+
+const [stats, cal] = await Promise.all([getStats(), getCalibration()]);
+const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
+---
+
+<Base subtitle="Cómo funciona el modelo, qué mide y dónde están sus límites." active="guia">
+  <article class="prose-invert max-w-none space-y-8 text-sm leading-relaxed text-slate-300">
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">Qué es esto</h2>
+      <p>
+        Una herramienta de análisis para tenis: estima la probabilidad de que gane cada jugador de un
+        partido ATP o WTA y la contrasta contra las cuotas reales del mercado. Es de
+        <strong> análisis y auditoría</strong>: no ejecuta apuestas, no se conecta a ninguna casa y
+        no gestiona dinero real.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">El modelo, en corto</h2>
+      <p>
+        La base es un <strong>Elo por superficie</strong>: cada jugador tiene un rating global y uno
+        por tipo de pista (dura, arcilla, hierba), porque un mismo jugador puede ser temible en
+        arcilla y flojo en hierba. Como en tenis no hay empate, la probabilidad sale directa de la
+        diferencia de Elo.
+      </p>
+      <p class="mt-2">
+        Sobre ese Elo se monta una <strong>regresión logística</strong> que añade lo que el Elo no ve:
+        ranking oficial, head-to-head, carga y desgaste recientes, descanso, forma, experiencia y el
+        efecto del formato al mejor de 5 sets. Puedes ver el peso de cada factor en la
+        <a href="/calibracion" class="text-court-400 no-underline hover:underline">página de calibración</a>,
+        y su aporte a un partido concreto en cada ficha.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">Por qué la "carga reciente" resta</h2>
+      <p>
+        Un detalle que sorprende: jugar más partidos en las últimas dos semanas <em>mejora</em> el
+        pronóstico, no lo empeora. No es un error. En tenis, quien más ha jugado es justo quien va
+        ganando y avanzando en el cuadro. Por eso se separó en dos: el número de partidos (que capta
+        el avance) y la intensidad de esos partidos —juegos por partido— que sí mide el desgaste real.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">Honestidad sobre los límites</h2>
+      <p>
+        El modelo <strong>todavía no le gana al mercado</strong>. Sobre {cal.matches.toLocaleString('es-CL')}
+        partidos fuera de muestra, su Brier es {f(cal.brierModel)} frente a {f(cal.brierMarket)} de la
+        línea de cierre. Menor es mejor: el mercado sigue siendo el mejor pronosticador.
+      </p>
+      <p class="mt-2">
+        Es más: cuando el modelo <em>más</em> discrepa del mercado es cuando <em>más</em> se equivoca.
+        Un backtest del simulador mostró que apostar a sus mayores "ventajas" pierde más, no menos. Por
+        eso el <a href="/paper-trading" class="text-court-400 no-underline hover:underline">Paper Trading</a>
+        está en modo auditoría: no busca ganar, sino medir CLV.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">Qué es el CLV y por qué importa</h2>
+      <p>
+        El <strong>Closing Line Value</strong> compara la cuota a la que se apostó con la de cierre del
+        mercado. Si tomaste 2,10 y cerró en 2,00, tienes CLV positivo: conseguiste mejor precio que el
+        mercado al final. En un mercado eficiente, el CLV predice el rendimiento a largo plazo mucho
+        antes que el propio beneficio, que tarda cientos de apuestas en distinguirse de la suerte. Una
+        apuesta puede ganar y aun así tener CLV negativo: ganó, pero el precio era malo.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-lg font-semibold text-slate-100">De dónde salen los datos</h2>
+      <ul class="ml-4 list-disc space-y-1">
+        <li>
+          <strong>Resultados y cuotas de cierre</strong>: tennis-data.co.uk. {stats.firstSeason}–{stats.lastSeason},
+          {' '}{stats.matches.toLocaleString('es-CL')} partidos, con superficie, ronda, ranking y cuotas
+          reales de varias casas.
+        </li>
+        <li>
+          <strong>Partidos futuros y cuotas en vivo</strong>: The Odds API. Solo cubre Grand Slams,
+          Masters 1000 y algunos 500 — los torneos 250 no entran, y hay semanas sin ningún torneo cubierto.
+        </li>
+      </ul>
+      <p class="mt-2 text-xs text-slate-500">
+        Las probabilidades del modelo para partidos ya jugados se calcularon con el estado
+        <em> anterior</em> a cada partido (sin mirar el resultado), así que la evaluación es un backtest
+        honesto y no un ajuste sobre datos ya vistos.
+      </p>
+    </section>
+  </article>
+</Base>

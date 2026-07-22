@@ -4,8 +4,17 @@ import '../styles/global.css';
 interface Props {
   title?: string;
   subtitle?: string;
+  active?: string;
 }
-const { title = 'Tennis Trader Intelligence', subtitle } = Astro.props;
+const { title = 'Tennis Trader Intelligence', subtitle, active } = Astro.props;
+
+const nav = [
+  { href: '/', label: 'Dashboard', key: 'home' },
+  { href: '/ranking', label: 'Ranking', key: 'ranking' },
+  { href: '/paper-trading', label: 'Paper Trading', key: 'paper' },
+  { href: '/calibracion', label: 'Calibración', key: 'calibracion' },
+  { href: '/guia', label: 'Guía', key: 'guia' },
+];
 ---
 
 <!doctype html>
@@ -17,13 +26,26 @@ const { title = 'Tennis Trader Intelligence', subtitle } = Astro.props;
   </head>
   <body class="min-h-screen">
     <header class="border-b border-slate-800 bg-slate-900/60">
-      <div class="mx-auto max-w-5xl px-5 py-5">
-        <div class="flex items-baseline gap-3">
+      <div class="mx-auto max-w-5xl px-5 pt-5">
+        <a href="/" class="flex items-baseline gap-3 no-underline">
           <span class="text-2xl">🎾</span>
-          <h1 class="text-xl font-semibold tracking-tight">Tennis Trader Intelligence</h1>
-          <span class="rounded bg-court-900 px-2 py-0.5 text-xs font-medium text-court-100">Fase 1</span>
-        </div>
+          <h1 class="text-xl font-semibold tracking-tight text-slate-100">Tennis Trader Intelligence</h1>
+        </a>
         {subtitle && <p class="mt-1 text-sm text-slate-400">{subtitle}</p>}
+        <nav class="mt-4 flex flex-wrap gap-1 text-sm">
+          {nav.map((n) => (
+            <a
+              href={n.href}
+              class={`rounded-t-md px-3 py-2 font-medium no-underline transition ${
+                active === n.key
+                  ? 'bg-slate-950 text-court-400'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {n.label}
+            </a>
+          ))}
+        </nav>
       </div>
     </header>
 
@@ -31,7 +53,7 @@ const { title = 'Tennis Trader Intelligence', subtitle } = Astro.props;
       <slot />
     </main>
 
-    <footer class="mx-auto max-w-5xl px-5 pb-10 pt-4 text-xs leading-relaxed text-slate-500">
+    <footer class="mx-auto max-w-5xl border-t border-slate-800 px-5 pb-10 pt-4 text-xs leading-relaxed text-slate-500">
       Herramienta de análisis y auditoría. No ejecuta apuestas, no se conecta a ninguna casa
       y no gestiona dinero real. El Paper Trading usa dinero simulado y cuotas reales.
     </footer>

@@ -1,0 +1,103 @@
+---
+import Base from '../layouts/Base.astro';
+import { getPaperSummary, getPaperTrades } from '../lib/queries';
+import { fmtDate, signedPct } from '../lib/format';
+
+export const prerender = false;
+
+const [summary, trades] = await Promise.all([getPaperSummary(), getPaperTrades(50)]);
+const f2 = (x: number) => x.toFixed(2);
+---
+
+<Base subtitle="Simulador con dinero ficticio y cuotas reales. No ejecuta nada real." active="paper">
+  <div class="mb-6 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm leading-relaxed text-amber-100/80">
+    <strong class="text-amber-200">Modo auditoría.</strong> El backtest sobre 9.861 partidos fuera
+    de muestra demostró que la ventaja del modelo es <em>anti-predictiva</em>: cuanta más declara,
+    más se pierde. Por eso esto no es una estrategia — está para medir <strong>CLV</strong> (si la
+    cuota tomada resultó mejor que la de cierre), que es la única señal capaz de detectar ventaja
+    real antes de que el beneficio se distinga de la suerte.
+  </div>
+
+  {summary && summary.total > 0 ? (
+    <>
+      <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-400">Banca</div>
+          <div class="mt-1 font-mono text-2xl tabular-nums text-court-400">{f2(summary.bankroll)}</div>
+          <div class="mt-0.5 text-xs text-slate-500">de {f2(summary.initialBankroll)} inicial</div>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-400">Apuestas</div>
+          <div class="mt-1 font-mono text-2xl tabular-nums">{summary.total}</div>
+          <div class="mt-0.5 text-xs text-slate-500">{summary.open} abiertas · {summary.won}G / {summary.lost}P</div>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-400">ROI</div>
+          <div class={`mt-1 font-mono text-2xl tabular-nums ${summary.roi !== null && summary.roi < 0 ? 'text-red-400' : 'text-court-400'}`}>
+            {summary.roi === null ? '—' : `${summary.roi >= 0 ? '+' : ''}${summary.roi.toFixed(1)}%`}
+          </div>
+          <div class="mt-0.5 text-xs text-slate-500">sobre lo arriesgado</div>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div class="text-xs uppercase tracking-wide text-slate-400">CLV medio</div>
+          <div class="mt-1 font-mono text-2xl tabular-nums">{summary.clvMean === null ? '—' : signedPct(summary.clvMean)}</div>
+          <div class="mt-0.5 text-xs text-slate-500">{summary.clvPositive}/{summary.clvMeasured} positivos</div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="mb-3 text-lg font-semibold">Apuestas simuladas</h2>
+        <div class="overflow-x-auto rounded-lg border border-slate-800">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-900/70 text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr>
+                <th class="px-3 py-2 font-medium">Partido</th>
+                <th class="px-3 py-2 font-medium">Apuesta</th>
+                <th class="px-3 py-2 text-right font-medium">Cuota</th>
+                <th class="px-3 py-2 text-right font-medium">Ventaja</th>
+                <th class="px-3 py-2 text-right font-medium">Stake</th>
+                <th class="px-3 py-2 text-right font-medium">Estado</th>
+                <th class="px-3 py-2 text-right font-medium">CLV</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800">
+              {trades.map((t) => (
+                <tr class="hover:bg-slate-900/40">
+                  <td class="px-3 py-2">
+                    <a href={`/match/${t.matchId}`} class="text-slate-300 no-underline hover:text-court-400">
+                      {t.p1Name} vs {t.p2Name}
+                    </a>
+                  </td>
+                  <td class="px-3 py-2 text-slate-300">{t.selectionName}</td>
+                  <td class="px-3 py-2 text-right font-mono tabular-nums">{t.oddsTaken.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{signedPct(t.edge)}</td>
+                  <td class="px-3 py-2 text-right font-mono tabular-nums">{t.stake.toFixed(2)}</td>
+                  <td class="px-3 py-2 text-right">
+                    <span class={`rounded px-1.5 py-0.5 text-xs ${
+                      t.status === 'won' ? 'bg-court-900 text-court-300'
+                      : t.status === 'lost' ? 'bg-red-950 text-red-300'
+                      : 'bg-slate-800 text-slate-400'}`}>
+                      {t.status === 'won' ? 'Ganada' : t.status === 'lost' ? 'Perdida' : t.status === 'open' ? 'Abierta' : t.status}
+                    </span>
+                  </td>
+                  <td class={`px-3 py-2 text-right font-mono tabular-nums ${t.clv !== null && t.clv < 0 ? 'text-red-400' : t.clv !== null ? 'text-court-400' : 'text-slate-600'}`}>
+                    {t.clv === null ? '—' : signedPct(t.clv)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  ) : (
+    <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5 text-sm leading-relaxed text-slate-400">
+      <p>Todavía no hay apuestas simuladas.</p>
+      <p class="mt-2 text-xs text-slate-500">
+        El simulador solo coloca apuestas sobre partidos futuros con cuota real registrada, y hoy no
+        hay ningún torneo cubierto por The Odds API en curso. En cuanto arranque uno, el proceso
+        diario empezará a registrar apuestas aquí.
+      </p>
+    </div>
+  )}
+</Base>

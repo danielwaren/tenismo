@@ -1,0 +1,83 @@
+---
+import Base from '../layouts/Base.astro';
+import ReliabilityDiagram from '../components/ReliabilityDiagram.tsx';
+import { getCalibration, getModelWeights } from '../lib/queries';
+
+export const prerender = false;
+
+const [cal, weights] = await Promise.all([getCalibration(), getModelWeights()]);
+
+const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
+const gap = cal.brierModel - cal.brierMarket;
+
+const FEATURE_ES: Record<string, string> = {
+  eloDiffSurface: 'Elo en la superficie', eloDiffOverall: 'Elo global',
+  rankLogDiff: 'Ranking oficial', pointsLogDiff: 'Puntos de ranking',
+  h2h: 'Head-to-head', h2hSurface: 'Head-to-head en superficie',
+  loadDiff: 'Carga reciente', intensityDiff: 'Intensidad reciente',
+  restDiff: 'Descanso', formDiff: 'Forma reciente', expDiff: 'Experiencia',
+  surfaceExpDiff: 'Experiencia en superficie', bestOf5EloDiff: 'Ventaja al mejor de 5',
+};
+const maxW = Math.max(0.01, ...weights.map((w) => Math.abs(w.weight)));
+---
+
+<Base subtitle="Cómo de bien calibrado está el modelo, medido contra el mercado." active="calibracion">
+  <div class="mb-6 rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm leading-relaxed text-slate-300">
+    <p>
+      Estas cifras salen de <strong>{cal.matches.toLocaleString('es-CL')}</strong> partidos ya jugados
+      {cal.testFromSeason ? ` de ${cal.testFromSeason} en adelante (fuera de la muestra de entrenamiento)` : ''},
+      comparando el pronóstico del modelo con la cuota de cierre de Pinnacle devigada. La referencia
+      honesta no es acertar mucho, sino acercarse al mercado: es de los más afinados que existen.
+    </p>
+  </div>
+
+  <section class="mb-8 grid gap-4 sm:grid-cols-2">
+    <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+      <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Modelo vs mercado</h2>
+      <table class="w-full text-sm">
+        <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
+          <tr><th class="py-1 font-medium"></th><th class="py-1 text-right font-medium">Modelo</th><th class="py-1 text-right font-medium">Mercado</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800">
+          <tr><td class="py-1.5 text-slate-400">Brier</td><td class="py-1.5 text-right font-mono tabular-nums">{f(cal.brierModel)}</td><td class="py-1.5 text-right font-mono tabular-nums text-court-400">{f(cal.brierMarket)}</td></tr>
+          <tr><td class="py-1.5 text-slate-400">Log-loss</td><td class="py-1.5 text-right font-mono tabular-nums">{f(cal.logLossModel)}</td><td class="py-1.5 text-right font-mono tabular-nums text-court-400">{f(cal.logLossMarket)}</td></tr>
+          <tr><td class="py-1.5 text-slate-400">Skill vs tasa base</td><td class="py-1.5 text-right font-mono tabular-nums">{f(cal.skillModel, 3)}</td><td class="py-1.5 text-right font-mono tabular-nums text-court-400">{f(cal.skillMarket, 3)}</td></tr>
+        </tbody>
+      </table>
+      <p class="mt-3 text-xs leading-relaxed text-slate-500">
+        El modelo pierde por {f(gap)} de Brier. Menor es mejor: el mercado sigue siendo el mejor
+        pronosticador. Cualquier "ventaja" que calcule el modelo hay que leerla con esto delante.
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+      <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Fiabilidad</h2>
+      <ReliabilityDiagram client:load report={cal} />
+    </div>
+  </section>
+
+  {weights.length > 0 && (
+    <section class="mb-8 rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+      <h2 class="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">Peso de cada factor</h2>
+      <p class="mb-4 text-xs text-slate-500">Coeficientes del modelo, mayor magnitud primero. Sin término independiente.</p>
+      <div class="space-y-1.5">
+        {weights.map((w) => (
+          <div class="grid grid-cols-[10rem_1fr_3rem] items-center gap-2 text-xs">
+            <span class="text-slate-400">{FEATURE_ES[w.name] ?? w.name}</span>
+            <div class="h-3 overflow-hidden rounded-sm bg-slate-800">
+              <div
+                class={w.weight >= 0 ? 'h-full bg-court-500' : 'h-full bg-amber-600'}
+                style={`width: ${(Math.abs(w.weight) / maxW) * 100}%`}
+              />
+            </div>
+            <span class="text-right font-mono tabular-nums text-slate-400">{w.weight >= 0 ? '+' : ''}{w.weight.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+      <p class="mt-3 text-xs leading-relaxed text-slate-500">
+        Los factores con peso negativo (ámbar) restan a p1 cuando su valor sube. Ver la guía para el
+        caso de la carga reciente, que es negativa por una razón interesante.
+      </p>
+    </section>
+  )}
+</Base>

@@ -1,0 +1,19 @@
+---
+import Base from '../../layouts/Base.astro';
+import MatchDetailView from '../../components/MatchDetail.tsx';
+import { getMatchDetail } from '../../lib/queries';
+
+export const prerender = false;
+
+const id = Number(Astro.params.id);
+const match = Number.isFinite(id) ? await getMatchDetail(id) : null;
+
+if (!match) {
+  return new Response(null, { status: 404, statusText: 'Partido no encontrado' });
+}
+---
+
+<Base subtitle={`${match.p1Name} vs ${match.p2Name}`}>
+  <a href="/" class="mb-4 inline-block text-sm text-court-400 no-underline hover:underline">← volver</a>
+  <MatchDetailView client:load match={match} />
+</Base>

@@ -125,8 +125,10 @@ ganancia. Detalle en [docs/03-fase-1-5-modelo.md](docs/03-fase-1-5-modelo.md).
 1. **Cimientos** — esquema, scaffold, ingesta histórica, Elo por superficie. ✅
 1.5. **Modelo** — features (ranking, h2h, fatiga, forma, K por ronda) y ajuste
    logístico evaluado fuera de muestra. ✅
-2. **Cuotas reales + Paper Trading** — The Odds API, simulador binario.
-3. **Frontend** — dashboard, ficha de partido, ranking, buscador.
+2. **Cuotas reales + Paper Trading** — The Odds API, reconciliación, simulador
+   binario en modo auditoría. ✅
+3. **Frontend** — dashboard, ficha de partido, ranking, buscador, calibración,
+   guía. ✅
 4. **Calibración** — en buena parte resuelta ya en la 1.5; queda revisarla
    cuando haya muestra de partidos futuros reales.
 

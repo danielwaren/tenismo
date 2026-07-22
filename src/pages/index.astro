@@ -1,30 +1,27 @@
 ---
 import Base from '../layouts/Base.astro';
-import RankingTable from '../components/RankingTable.tsx';
-import { getStats, getRanking } from '../lib/queries';
+import Buscador from '../components/Buscador.tsx';
+import MatchList from '../components/MatchList.tsx';
+import { getStats, getUpcomingMatches, getPaperSummary } from '../lib/queries';
 
-// SSR: la base se lee en el servidor y las islas reciben los datos como props.
-const stats = await getStats();
+export const prerender = false;
 
-const tours = ['ATP', 'WTA'] as const;
-const scopes = ['all', 'hard', 'clay', 'grass'] as const;
-const ranking: Record<string, Awaited<ReturnType<typeof getRanking>>> = {};
-for (const tour of tours) {
-  for (const scope of scopes) {
-    ranking[`${tour}:${scope}`] = await getRanking(tour, scope, 25);
-  }
-}
+const [stats, upcoming, paper] = await Promise.all([
+  getStats(),
+  getUpcomingMatches(20),
+  getPaperSummary(),
+]);
 
 const n = (x: number) => x.toLocaleString('es-CL');
 const cards = [
-  { label: 'Partidos', value: n(stats.matches), hint: `${n(stats.completed)} completados` },
-  { label: 'Con cuota real', value: n(stats.withOdds), hint: 'cuotas de cierre históricas' },
+  { label: 'Partidos', value: n(stats.matches), hint: `${n(stats.completed)} jugados` },
+  { label: 'Con cuota real', value: n(stats.withOdds), hint: 'cuotas de cierre' },
   { label: 'Jugadores', value: n(stats.players), hint: `${n(stats.tournaments)} torneos` },
-  { label: 'Predicciones', value: n(stats.predictions), hint: 'backtest sin look-ahead' },
+  { label: 'Pronósticos', value: n(stats.predictions), hint: 'backtest sin look-ahead' },
 ];
 ---
 
-<Base subtitle="Elo por superficie para ATP y WTA, contrastado contra cuotas reales de cierre.">
+<Base subtitle="Elo por superficie para ATP y WTA, contrastado contra cuotas reales." active="home">
   <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
     {cards.map((c) => (
       <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
@@ -35,15 +32,39 @@ const cards = [
     ))}
   </section>
 
-  <section class="mb-8 rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm">
-    <h2 class="mb-2 font-semibold">Cobertura de datos</h2>
-    <p class="text-slate-400">
-      Temporadas {stats.firstSeason ?? '—'}–{stats.lastSeason ?? '—'}, último partido registrado
-      el {stats.lastMatch ?? '—'}. Fuente histórica: tennis-data.co.uk (resultado, superficie,
-      ronda, ranking y cuotas de cierre de Pinnacle, Bet365 y media/máximo del mercado).
-    </p>
+  <section class="mb-8">
+    <h2 class="mb-3 text-lg font-semibold">Próximos partidos</h2>
+    {upcoming.length > 0 ? (
+      <MatchList client:load matches={upcoming} />
+    ) : (
+      <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
+        <p>No hay partidos programados ahora mismo.</p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">
+          El calendario futuro viene de The Odds API, que solo cubre Grand Slams, Masters 1000 y
+          algunos 500 — y hay semanas sin ningún torneo cubierto. En cuanto arranque uno, el
+          proceso diario lo recogerá automáticamente. Mientras tanto, puedes explorar los
+          {' '}{n(stats.completed)} partidos ya jugados con el buscador.
+        </p>
+      </div>
+    )}
   </section>
 
-  <h2 class="mb-4 text-lg font-semibold">Ranking Elo</h2>
-  <RankingTable client:load data={ranking} />
+  {paper && (
+    <section class="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm">
+      <div class="flex items-center justify-between">
+        <h2 class="font-semibold text-amber-200">Paper Trading — modo auditoría</h2>
+        <a href="/paper-trading" class="text-xs text-court-400 no-underline hover:underline">ver detalle →</a>
+      </div>
+      <p class="mt-1 text-xs leading-relaxed text-amber-100/70">
+        Apuestas simuladas con dinero ficticio y cuotas reales. El backtest mostró que la ventaja
+        del modelo es anti-predictiva, así que esto NO busca ganar: mide CLV. Apuestas registradas:
+        {' '}{paper.total}.
+      </p>
+    </section>
+  )}
+
+  <section>
+    <h2 class="mb-3 text-lg font-semibold">Buscar partidos</h2>
+    <Buscador client:load />
+  </section>
 </Base>

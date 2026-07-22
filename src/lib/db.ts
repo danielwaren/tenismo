@@ -16,11 +16,32 @@ import { createClient, type Client } from '@libsql/client';
 
 const DEFAULT_LOCAL_URL = 'file:./data/tennis.db';
 
+/**
+ * Puebla process.env desde .env si hace falta. Astro/Vite NO copia las variables
+ * sin prefijo PUBLIC_ a process.env, así que en `astro dev` la app SSR no veía
+ * TURSO_* y caía a la base local en silencio. Se hace aquí, en un módulo
+ * solo-servidor, para que el secreto nunca entre en el bundle del cliente
+ * (añadirlo al envPrefix de Vite lo expondría al navegador — justo lo que no se
+ * quiere). En Vercel no hay .env y las variables ya están en process.env, así
+ * que esto no hace nada.
+ */
+function ensureEnvLoaded(): void {
+  if (process.env.TURSO_DATABASE_URL) return;
+  const loader = (process as unknown as { loadEnvFile?: (p?: string) => void }).loadEnvFile;
+  if (typeof loader !== 'function') return;
+  try {
+    loader('.env');
+  } catch {
+    /* sin .env (p.ej. Vercel): las variables ya vienen del entorno */
+  }
+}
+
 let client: Client | null = null;
 
 export function db(): Client {
   if (client) return client;
 
+  ensureEnvLoaded();
   const fromEnv = process.env.TURSO_DATABASE_URL;
   const url = fromEnv ?? DEFAULT_LOCAL_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN || undefined;
