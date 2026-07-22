@@ -1,100 +1,78 @@
 # Puesta en producción: GitHub y Turso
 
-Estos son los pasos que tienes que hacer tú, porque implican crear cuentas y
-recursos. Todo lo demás ya está listo y funciona hoy contra el fichero local.
+## Estado actual
 
-Hazlos **en este orden**: el workflow de GitHub Actions necesita los secrets de
-Turso, así que la base tiene que existir antes de que el cron sirva de algo.
+| Recurso | Valor |
+|---|---|
+| Base Turso | `tenismo` — `libsql://tenismo-danielgu.aws-us-west-2.turso.io` |
+| Repositorio | https://github.com/danielwaren/tenismo (**público**) |
+| Rama | `main` |
+
+Lo hecho: esquema migrado en Turso, datos cargados, código subido a GitHub.
+Lo que falta lo indica la sección 2.3 (secrets del workflow).
 
 ---
 
 ## 1. Turso (la base de datos)
 
-### 1.1 Instalar la CLI y crear la base
+Ya está creada y cargada. Esta sección queda como referencia.
 
-En PowerShell:
+El plan gratuito da 500 bases, 9 GB de almacenamiento y 1.000 millones de
+lecturas de fila al mes. La base pesa unos **40 MB** con las 14 temporadas, así
+que va sobradísima.
 
-```powershell
-irm https://tur.so/install.ps1 | iex
-turso auth signup      # o `turso auth login` si ya tienes cuenta
-turso db create tennis-trader --location scl   # scl = Santiago; usa el más cercano
-```
-
-El plan gratuito de Turso da 500 bases, 9 GB de almacenamiento y 1.000 millones
-de lecturas de fila al mes. Esta base pesa unos **40 MB** con las 14 temporadas
-cargadas, así que va sobradísima.
-
-### 1.2 Sacar la URL y el token
+### Comandos útiles
 
 ```powershell
-turso db show tennis-trader --url
-turso db tokens create tennis-trader
+turso db show tenismo --url
+turso db tokens create tenismo
+turso db tokens invalidate tenismo    # rota el token; invalida los anteriores
 ```
 
-Guarda las dos cosas. **El token da acceso total a la base** — Turso no tiene
-RLS, así que no hay nada por debajo que lo limite. No lo pegues en el chat, no lo
-commitees y no lo pongas en ninguna variable `PUBLIC_*`.
+**El token da acceso total a la base** — Turso no tiene RLS, no hay nada por
+debajo que lo limite. No lo pegues en un chat, no lo commitees y no lo pongas en
+ninguna variable `PUBLIC_*`.
 
-### 1.3 Apuntar el proyecto a Turso
-
-En `.env` (que está en `.gitignore`):
-
-```
-TURSO_DATABASE_URL=libsql://tennis-trader-<tu-org>.turso.io
-TURSO_AUTH_TOKEN=<el token>
-```
-
-### 1.4 Cargar el esquema y los datos
+### Recargar los datos desde cero
 
 ```powershell
 npm run db:migrate
 npm run db:ingest
 npm run db:elo -- --reset
 npx tsx scripts/fit-model.ts
+npx tsx scripts/predict.ts --all
 ```
 
-La ingesta contra Turso tarda bastante más que en local (cada lote va por red).
-Si prefieres no esperar, `data/tennis.db` ya tiene todo y puedes subirlo de una:
+Contra Turso cada lote va por red, así que la carga completa tarda unos 15
+minutos y el entreno otros 10. Los lotes reintentan solos ante cortes de red
+(`scripts/lib/batch.ts`), y todas las escrituras son idempotentes: si se corta a
+mitad, se relanza el mismo comando y continúa sin duplicar nada.
 
-```powershell
-turso db shell tennis-trader < volcado.sql
-```
-
-...pero lo simple y seguro es dejar correr los cuatro comandos de arriba.
+Para trabajar rápido sin gastar red, en `.env`:
+`TURSO_DATABASE_URL=file:./data/tennis.db`
 
 ---
 
 ## 2. GitHub (el repositorio y los crons)
 
-### 2.1 Crear el repositorio
+### 2.1 y 2.2 — hechos
 
-`tennis-trader-intelligence/` ya es un repo git con los commits hechos, pero
-**sin remoto**. En github.com crea un repositorio vacío — sin README, sin
-.gitignore, sin licencia, o el primer push chocará.
+El remoto ya está configurado y `main` subida.
 
-Sugerencia de nombre: `tennis-trader-intelligence`. Ten en cuenta que el de
-fútbol se llama `deportismo` en GitHub aunque la carpeta local se llame otra
-cosa; aquí puedes evitar esa confusión.
-
-### 2.2 Conectarlo y subir
-
-```powershell
-cd C:\Users\danig\OneDrive\Desktop\web\tennis-trader-intelligence
-git remote add origin https://github.com/danielwaren/tennis-trader-intelligence.git
-git push -u origin main
-```
-
-No hay `gh` CLI instalada en este equipo, así que el repositorio hay que crearlo
-desde la web.
+⚠️ El repositorio se creó **público**. No contiene secretos (`.env` está
+ignorado y nunca se commiteó), pero si lo quieres privado:
+Settings → General → Danger Zone → Change repository visibility.
 
 ### 2.3 Cargar los secrets
 
-En el repo: **Settings → Secrets and variables → Actions → New repository secret**.
+**Este es el único paso que falta.** En
+https://github.com/danielwaren/tenismo/settings/secrets/actions → *New
+repository secret*:
 
 | Nombre | Valor |
 |---|---|
-| `TURSO_DATABASE_URL` | la URL `libsql://...` del paso 1.2 |
-| `TURSO_AUTH_TOKEN` | el token del paso 1.2 |
+| `TURSO_DATABASE_URL` | `libsql://tenismo-danielgu.aws-us-west-2.turso.io` |
+| `TURSO_AUTH_TOKEN` | el token (usa uno **nuevo**, ver aviso del final) |
 
 Sin estos dos, el workflow falla a propósito en el primer paso en vez de correr
 en vacío y aparentar que todo va bien.
@@ -124,12 +102,16 @@ verlas nunca).
 
 ---
 
-## Aviso sobre las claves
+## Aviso: hay un token que rotar
 
-Si en algún momento pegas el token de Turso en un chat, en un commit o en una
-captura, **rótalo**:
+El token con el que se configuró esto se pegó en una conversación de chat, así
+que **ya no es secreto**. Da acceso total de lectura y escritura a la base.
+Rótalo y usa el nuevo tanto en `.env` como en los secrets de GitHub:
 
 ```powershell
-turso db tokens invalidate tennis-trader
-turso db tokens create tennis-trader
+turso db tokens invalidate tenismo    # invalida TODOS los tokens anteriores
+turso db tokens create tenismo        # genera uno nuevo
 ```
+
+Regla general: si un token acaba en un chat, un commit o una captura, se rota.
+No se "vigila", se rota.

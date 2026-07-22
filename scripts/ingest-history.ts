@@ -14,6 +14,7 @@ import { mkdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, isLocalDb } from '../src/lib/db';
 import { loadEnv } from './lib/env';
+import { runBatch as runBatchWithRetry } from './lib/batch';
 import { readXlsx } from './lib/xlsx';
 import { parseSeason, seasonUrl, FIRST_XLSX_SEASON, type RawMatch } from './lib/tennis-data';
 
@@ -51,17 +52,8 @@ async function download(tour: 'ATP' | 'WTA', season: number, force: boolean): Pr
   return dest;
 }
 
-/** Ejecuta sentencias en lotes dentro de una transacción por lote. */
-async function runBatch(stmts: { sql: string; args: unknown[] }[], label: string) {
-  const client = db();
-  for (let i = 0; i < stmts.length; i += CHUNK) {
-    await client.batch(stmts.slice(i, i + CHUNK) as any, 'write');
-    if (stmts.length > CHUNK * 4 && (i / CHUNK) % 25 === 0) {
-      process.stdout.write(`\r  ${label}: ${Math.min(i + CHUNK, stmts.length)}/${stmts.length}   `);
-    }
-  }
-  if (stmts.length > CHUNK * 4) process.stdout.write(`\r  ${label}: ${stmts.length}/${stmts.length}   \n`);
-}
+const runBatch = (stmts: { sql: string; args: unknown[] }[], label: string) =>
+  runBatchWithRetry(db(), stmts, label, { chunk: CHUNK });
 
 async function main() {
   const from = Number(arg('from', String(FIRST_XLSX_SEASON)));

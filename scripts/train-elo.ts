@@ -17,6 +17,7 @@
  */
 import { db, isLocalDb } from '../src/lib/db';
 import { loadEnv } from './lib/env';
+import { runBatch as runBatchWithRetry } from './lib/batch';
 import {
   DEFAULT_ELO, predictMatch, updateRatings, effectiveElo, expectedWinProb,
   shrunkH2H, rankLogDiff, pointsLogDiff, loadDiff, intensityDiff, restDiff, formDiff,
@@ -51,16 +52,8 @@ function totalGames(setsJson: string | null): number {
   }
 }
 
-async function runBatch(stmts: { sql: string; args: unknown[] }[], label: string) {
-  const client = db();
-  for (let i = 0; i < stmts.length; i += CHUNK) {
-    await client.batch(stmts.slice(i, i + CHUNK) as any, 'write');
-    if (stmts.length > CHUNK * 4 && (i / CHUNK) % 25 === 0) {
-      process.stdout.write(`\r  ${label}: ${Math.min(i + CHUNK, stmts.length)}/${stmts.length}   `);
-    }
-  }
-  if (stmts.length > CHUNK * 4) process.stdout.write(`\r  ${label}: ${stmts.length}/${stmts.length}   \n`);
-}
+const runBatch = (stmts: { sql: string; args: unknown[] }[], label: string) =>
+  runBatchWithRetry(db(), stmts, label, { chunk: CHUNK });
 
 async function main() {
   const client = db();
@@ -304,10 +297,18 @@ async function main() {
   }
   await runBatch(ratingStmts, 'ratings');
 
-  await runBatch(
-    appliedIds.map((id) => ({ sql: 'update matches set elo_applied = 1 where id = ?', args: [id] })),
-    'marcar procesados',
-  );
+  // Un UPDATE por id serían 64.000 sentencias; contra Turso eso es un minuto y
+  // medio de ida y vuelta por red para algo que cabe en 130 sentencias.
+  const MARK = 500;
+  const markStmts: { sql: string; args: unknown[] }[] = [];
+  for (let i = 0; i < appliedIds.length; i += MARK) {
+    const ids = appliedIds.slice(i, i + MARK);
+    markStmts.push({
+      sql: `update matches set elo_applied = 1 where id in (${ids.map(() => '?').join(',')})`,
+      args: ids,
+    });
+  }
+  await runBatch(markStmts, 'marcar procesados');
 
   // ── Resumen ────────────────────────────────────────────────────────────────
   console.log(`\nProcesados ${appliedIds.length} partidos, ${touched.size} jugadores con rating.`);

@@ -14,6 +14,7 @@
  */
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
+import { runBatch } from './lib/batch';
 import { FEATURE_NAMES, predictProb, type LogRegModel } from '@tti/model';
 
 loadEnv();
@@ -105,9 +106,7 @@ async function main() {
     };
   });
 
-  for (let i = 0; i < stmts.length; i += CHUNK) {
-    await client.batch(stmts.slice(i, i + CHUNK) as any, 'write');
-  }
+  await runBatch(client, stmts, 'predicciones', { chunk: CHUNK });
   console.log(`Predicciones escritas con "${version}": ${stmts.length}${all ? ' (todas)' : ' (pendientes)'}.`);
 }
 
