@@ -1,0 +1,40 @@
+{
+  "name": "tennis-trader-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "test": "npm --workspace @tti/model run test",
+    "typecheck": "astro check",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:ingest": "tsx scripts/ingest-history.ts",
+    "db:elo": "tsx scripts/train-elo.ts"
+  },
+  "dependencies": {
+    "@astrojs/react": "^4.2.0",
+    "@astrojs/tailwind": "^6.0.0",
+    "@astrojs/vercel": "^8.0.0",
+    "@libsql/client": "^0.15.0",
+    "@tti/model": "*",
+    "astro": "^5.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.17"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "unzipper": "^0.12.3"
+  }
+}

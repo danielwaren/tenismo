@@ -1,0 +1,74 @@
+name: Ingesta diaria
+
+# Turso es SOLO base de datos: no tiene pg_cron ni Edge Functions, así que el
+# trabajo programado vive aquí y no dentro de la base (en el proyecto de fútbol
+# lo hacía pg_cron + pg_net dentro de Supabase).
+#
+# Se eligió GitHub Actions en vez de Vercel Cron porque este job descarga los
+# ficheros de la temporada, parsea miles de partidos y reentrena el Elo: no cabe
+# en el límite de tiempo de una función serverless del plan Hobby.
+#
+# Secrets necesarios en el repositorio:
+#   TURSO_DATABASE_URL   libsql://<bd>-<org>.turso.io
+#   TURSO_AUTH_TOKEN     token de Turso (acceso total: no hay RLS)
+
+on:
+  schedule:
+    # 06:30 UTC. La fuente publica el fichero de la temporada una vez al día.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+    inputs:
+      reset_elo:
+        description: 'Reentrenar el Elo desde cero (necesario si la fuente corrigió resultados)'
+        type: boolean
+        default: false
+
+concurrency:
+  # Dos ingestas simultáneas escribirían el Elo a la vez: se serializan.
+  group: ingesta-turso
+  cancel-in-progress: false
+
+jobs:
+  ingesta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Comprobar que hay base configurada
+        run: |
+          if [ -z "$TURSO_DATABASE_URL" ]; then
+            echo "Falta el secret TURSO_DATABASE_URL." >&2
+            exit 1
+          fi
+
+      - name: Migraciones
+        run: npm run db:migrate
+
+      - name: Ingesta de la temporada en curso
+        # Solo el año actual: las temporadas cerradas ya no cambian y bajarlas
+        # todos los días sería tirar ancho de banda de la fuente.
+        run: npm run db:ingest -- --from $(date -u +%Y) --force
+
+      - name: Entrenar Elo
+        run: |
+          if [ "${{ inputs.reset_elo }}" = "true" ]; then
+            npm run db:elo -- --reset
+          else
+            npm run db:elo
+          fi
+
+      - name: Evaluación contra el mercado
+        # No falla el job: es un informe que queda en el log para vigilar que el
+        # modelo no se degrade en silencio.
+        run: npx tsx scripts/evaluate.ts || true

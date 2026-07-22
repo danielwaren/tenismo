@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.astro/
+.vercel/
+.env
+.env.local
+*.log
+
+# Base local de desarrollo (libSQL en fichero) y descargas de la ingesta.
+data/*.db
+data/*.db-*
+data/raw/

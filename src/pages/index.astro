@@ -1,0 +1,49 @@
+---
+import Base from '../layouts/Base.astro';
+import RankingTable from '../components/RankingTable.tsx';
+import { getStats, getRanking } from '../lib/queries';
+
+// SSR: la base se lee en el servidor y las islas reciben los datos como props.
+const stats = await getStats();
+
+const tours = ['ATP', 'WTA'] as const;
+const scopes = ['all', 'hard', 'clay', 'grass'] as const;
+const ranking: Record<string, Awaited<ReturnType<typeof getRanking>>> = {};
+for (const tour of tours) {
+  for (const scope of scopes) {
+    ranking[`${tour}:${scope}`] = await getRanking(tour, scope, 25);
+  }
+}
+
+const n = (x: number) => x.toLocaleString('es-CL');
+const cards = [
+  { label: 'Partidos', value: n(stats.matches), hint: `${n(stats.completed)} completados` },
+  { label: 'Con cuota real', value: n(stats.withOdds), hint: 'cuotas de cierre históricas' },
+  { label: 'Jugadores', value: n(stats.players), hint: `${n(stats.tournaments)} torneos` },
+  { label: 'Predicciones', value: n(stats.predictions), hint: 'backtest sin look-ahead' },
+];
+---
+
+<Base subtitle="Elo por superficie para ATP y WTA, contrastado contra cuotas reales de cierre.">
+  <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    {cards.map((c) => (
+      <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-400">{c.label}</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-court-400">{c.value}</div>
+        <div class="mt-0.5 text-xs text-slate-500">{c.hint}</div>
+      </div>
+    ))}
+  </section>
+
+  <section class="mb-8 rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm">
+    <h2 class="mb-2 font-semibold">Cobertura de datos</h2>
+    <p class="text-slate-400">
+      Temporadas {stats.firstSeason ?? '—'}–{stats.lastSeason ?? '—'}, último partido registrado
+      el {stats.lastMatch ?? '—'}. Fuente histórica: tennis-data.co.uk (resultado, superficie,
+      ronda, ranking y cuotas de cierre de Pinnacle, Bet365 y media/máximo del mercado).
+    </p>
+  </section>
+
+  <h2 class="mb-4 text-lg font-semibold">Ranking Elo</h2>
+  <RankingTable client:load data={ranking} />
+</Base>
