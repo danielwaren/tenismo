@@ -1,0 +1,51 @@
+---
+import type { TournamentCard } from '../lib/queries';
+import { SURFACE_ES, SURFACE_DOT, fmtDate } from '../lib/format';
+
+interface Props {
+  tournaments: TournamentCard[];
+}
+const { tournaments } = Astro.props;
+---
+
+<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  {tournaments.map((t) => (
+    <a
+      href={`/tournament/${t.id}`}
+      class="block rounded-lg border border-slate-800 bg-slate-900/40 p-4 no-underline transition hover:border-slate-700 hover:bg-slate-900/70"
+    >
+      <div class="flex items-center justify-between gap-2 text-xs text-slate-400">
+        <span class={`rounded px-1.5 py-0.5 font-medium ${t.tour === 'ATP' ? 'bg-blue-950 text-blue-300' : 'bg-fuchsia-950 text-fuchsia-300'}`}>
+          {t.tour}
+        </span>
+        <span>{t.season}</span>
+      </div>
+      <div class="mt-2 font-medium text-slate-100">{t.name}</div>
+      <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+        {t.surface && (
+          <span class="flex items-center gap-1">
+            <span class={`h-2 w-2 rounded-full ${SURFACE_DOT[t.surface] ?? 'bg-slate-400'}`} />
+            {SURFACE_ES[t.surface] ?? t.surface}
+          </span>
+        )}
+        {t.series && <span>{t.series}</span>}
+      </div>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs">
+        {t.live > 0 && (
+          <span class="rounded bg-red-950 px-1.5 py-0.5 font-semibold text-red-400">
+            {t.live} en vivo
+          </span>
+        )}
+        {t.scheduled > 0 && (
+          <span class="rounded bg-court-900 px-1.5 py-0.5 text-court-200">{t.scheduled} por jugar</span>
+        )}
+        {t.played > 0 && (
+          <span class="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">{t.played} jugados</span>
+        )}
+      </div>
+      {t.lastDate && (
+        <div class="mt-2 text-[11px] text-slate-600">{fmtDate(t.firstDate ?? t.lastDate)} – {fmtDate(t.lastDate)}</div>
+      )}
+    </a>
+  ))}
+</div>

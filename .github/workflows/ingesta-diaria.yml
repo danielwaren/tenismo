@@ -75,6 +75,13 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: npx tsx scripts/odds-ingest.ts
 
+      - name: Marcadores en vivo
+        # Refresco diario. Para marcadores realmente "en vivo" está el workflow
+        # aparte en-vivo.yml. Cuesta 0 créditos si no hay torneo cubierto activo.
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: npx tsx scripts/scores-ingest.ts
+
       - name: Entrenar Elo y calcular features
         run: |
           if [ "${{ inputs.reset_elo }}" = "true" ]; then

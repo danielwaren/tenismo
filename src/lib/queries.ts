@@ -180,6 +180,177 @@ export async function searchMatches(
 
 // ── Ficha de partido ─────────────────────────────────────────────────────────
 
+// ── Torneos ──────────────────────────────────────────────────────────────────
+
+export interface TournamentCard {
+  id: number;
+  tour: string;
+  name: string;
+  season: number;
+  surface: string | null;
+  series: string | null;
+  matches: number;
+  played: number;
+  scheduled: number;
+  live: number;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
+function mapTournament(r: Record<string, unknown>): TournamentCard {
+  return {
+    id: Number(r.id),
+    tour: String(r.tour),
+    name: String(r.name),
+    season: Number(r.season),
+    surface: (r.surface as string | null) ?? null,
+    series: (r.series as string | null) ?? null,
+    matches: Number(r.matches),
+    played: Number(r.played),
+    scheduled: Number(r.scheduled),
+    live: Number(r.live),
+    firstDate: (r.first_date as string | null) ?? null,
+    lastDate: (r.last_date as string | null) ?? null,
+  };
+}
+
+const TOURNAMENT_SELECT = `
+  select tr.id, t.code as tour, tr.name, tr.season, tr.surface, tr.series,
+         count(m.id) as matches,
+         sum(case when m.status = 'completed' then 1 else 0 end) as played,
+         sum(case when m.status = 'scheduled' then 1 else 0 end) as scheduled,
+         (select count(*) from live_scores ls join matches lm on lm.id = ls.match_id
+            where lm.tournament_id = tr.id and ls.state = 'live') as live,
+         min(m.played_on) as first_date, max(m.played_on) as last_date
+  from tournaments tr
+  join tours t on t.id = tr.tour_id
+  join matches m on m.tournament_id = tr.id
+`;
+
+/** Torneos EN VIVO: los que tienen al menos un partido en curso. */
+export async function getLiveTournaments(): Promise<TournamentCard[]> {
+  const c = db();
+  const res = await c.execute(`
+    ${TOURNAMENT_SELECT}
+    where exists (
+      select 1 from live_scores ls join matches lm on lm.id = ls.match_id
+      where lm.tournament_id = tr.id and ls.state = 'live'
+    )
+    group by tr.id order by tr.name
+  `);
+  return res.rows.map(mapTournament);
+}
+
+/** Torneos con partidos programados (próximos), por fecha de inicio. */
+export async function getUpcomingTournaments(limit = 12): Promise<TournamentCard[]> {
+  const c = db();
+  const res = await c.execute({
+    sql: `${TOURNAMENT_SELECT}
+          where tr.id in (select tournament_id from matches where status = 'scheduled')
+          group by tr.id
+          order by (select min(played_on) from matches where tournament_id = tr.id and status = 'scheduled') asc
+          limit ?`,
+    args: [limit],
+  });
+  return res.rows.map(mapTournament);
+}
+
+/** Torneos más recientes con resultados, para explorar el histórico. */
+export async function getRecentTournaments(limit = 12): Promise<TournamentCard[]> {
+  const c = db();
+  const res = await c.execute({
+    sql: `${TOURNAMENT_SELECT}
+          group by tr.id
+          order by last_date desc
+          limit ?`,
+    args: [limit],
+  });
+  return res.rows.map(mapTournament);
+}
+
+export interface TournamentDetail {
+  card: TournamentCard;
+  /** Partidos por ronda, en orden de cuadro. */
+  rounds: { round: string; matches: MatchRow[] }[];
+}
+
+// Orden canónico de rondas (de la primera a la final).
+const ROUND_ORDER = [
+  'Round Robin', '1st Round', '2nd Round', '3rd Round', '4th Round',
+  'Quarterfinals', 'Semifinals', 'The Final',
+];
+function roundRank(r: string | null): number {
+  const i = ROUND_ORDER.indexOf(r ?? '');
+  return i === -1 ? 99 : i;
+}
+
+export async function getTournamentDetail(id: number): Promise<TournamentDetail | null> {
+  const c = db();
+  const version = await getModelVersion();
+
+  const cardRow = (await c.execute({
+    sql: `${TOURNAMENT_SELECT} where tr.id = ? group by tr.id`,
+    args: [id],
+  })).rows[0];
+  if (!cardRow) return null;
+
+  const matches = (await c.execute({
+    sql: `${MATCH_SELECT} where m.tournament_id = ? order by m.played_on, m.id`,
+    args: [version, id],
+  })).rows.map(mapMatch);
+
+  const byRound = new Map<string, MatchRow[]>();
+  for (const m of matches) {
+    const key = m.round ?? 'Sin ronda';
+    (byRound.get(key) ?? byRound.set(key, []).get(key)!).push(m);
+  }
+  const rounds = [...byRound.entries()]
+    .sort((a, b) => roundRank(a[0]) - roundRank(b[0]))
+    .map(([round, matches]) => ({ round, matches }));
+
+  return { card: mapTournament(cardRow), rounds };
+}
+
+// ── Partidos en vivo ─────────────────────────────────────────────────────────
+
+export interface LiveMatchRow extends MatchRow {
+  scoreP1: string | null;
+  scoreP2: string | null;
+  liveState: string;
+  tournamentId: number;
+}
+
+export async function getLiveMatches(): Promise<LiveMatchRow[]> {
+  const c = db();
+  const version = await getModelVersion();
+  const res = await c.execute({
+    sql: `
+      select m.id, t.code as tour, tr.name as tournament, tr.id as tournament_id,
+             m.surface, m.round, m.played_on, m.status,
+             p1.name as p1_name, p2.name as p2_name, m.p1_won,
+             mo.prob_p1, mo.confidence,
+             ls.score_p1, ls.score_p2, ls.state as live_state
+      from live_scores ls
+      join matches m on m.id = ls.match_id
+      join tours t on t.id = m.tour_id
+      join tournaments tr on tr.id = m.tournament_id
+      join players p1 on p1.id = m.p1_id
+      join players p2 on p2.id = m.p2_id
+      left join model_outputs mo on mo.match_id = m.id and mo.model_version = ?
+      where ls.state = 'live'
+      order by ls.updated_at desc
+    `,
+    args: [version],
+  });
+  return res.rows.map((r) => ({
+    ...mapMatch(r),
+    tournamentId: Number(r.tournament_id),
+    scoreP1: (r.score_p1 as string | null) ?? null,
+    scoreP2: (r.score_p2 as string | null) ?? null,
+    liveState: String(r.live_state),
+  }));
+}
+
 export interface FeatureContribution {
   name: FeatureName;
   value: number;

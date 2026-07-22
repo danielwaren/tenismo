@@ -1,0 +1,47 @@
+---
+import Base from '../../layouts/Base.astro';
+import MatchList from '../../components/MatchList.tsx';
+import { getTournamentDetail } from '../../lib/queries';
+import { SURFACE_ES } from '../../lib/format';
+
+export const prerender = false;
+
+const id = Number(Astro.params.id);
+const detail = Number.isFinite(id) ? await getTournamentDetail(id) : null;
+
+if (!detail) {
+  return new Response(null, { status: 404, statusText: 'Torneo no encontrado' });
+}
+
+const { card, rounds } = detail;
+---
+
+<Base subtitle={`${card.name} · ${card.season}`}>
+  <a href="/" class="mb-4 inline-block text-sm text-court-400 no-underline hover:underline">← volver</a>
+
+  <div class="mb-6 rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+      <span class={`rounded px-1.5 py-0.5 font-medium ${card.tour === 'ATP' ? 'bg-blue-950 text-blue-300' : 'bg-fuchsia-950 text-fuchsia-300'}`}>
+        {card.tour}
+      </span>
+      <span>{card.season}</span>
+      {card.surface && <span>· {SURFACE_ES[card.surface] ?? card.surface}</span>}
+      {card.series && <span>· {card.series}</span>}
+    </div>
+    <h2 class="mt-2 text-2xl font-semibold">{card.name}</h2>
+    <div class="mt-3 flex flex-wrap gap-2 text-xs">
+      {card.live > 0 && <span class="rounded bg-red-950 px-2 py-0.5 font-semibold text-red-400">{card.live} en vivo</span>}
+      {card.scheduled > 0 && <span class="rounded bg-court-900 px-2 py-0.5 text-court-200">{card.scheduled} por jugar</span>}
+      {card.played > 0 && <span class="rounded bg-slate-800 px-2 py-0.5 text-slate-300">{card.played} jugados</span>}
+    </div>
+  </div>
+
+  <div class="space-y-8">
+    {rounds.map((r) => (
+      <section>
+        <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">{r.round}</h3>
+        <MatchList client:visible matches={r.matches} />
+      </section>
+    ))}
+  </div>
+</Base>

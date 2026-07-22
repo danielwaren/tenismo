@@ -146,6 +146,34 @@ export async function fetchOdds(
   return { events: (await res.json()) as OddsApiEvent[], quota: quotaFrom(res) };
 }
 
+export interface OddsApiScore {
+  id: string;
+  sport_key: string;
+  commence_time: string;
+  completed: boolean;
+  home_team: string;
+  away_team: string;
+  /** Marcador por competidor. En tenis suele ser sets ganados. null si no empezó. */
+  scores: { name: string; score: string }[] | null;
+  last_update: string | null;
+}
+
+/**
+ * Marcadores en vivo y recién terminados de un torneo. Cuesta 1 crédito
+ * (2 si se pide daysFrom). Solo devuelve datos si el torneo está activo.
+ */
+export async function fetchScores(
+  apiKey: string,
+  sportKey: string,
+  daysFrom?: number,
+): Promise<{ scores: OddsApiScore[]; quota: QuotaInfo }> {
+  const days = daysFrom ? `&daysFrom=${daysFrom}` : '';
+  const url = `${ODDS_API_BASE}/sports/${sportKey}/scores/?apiKey=${apiKey}${days}&dateFormat=iso`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`the-odds-api scores ${sportKey}: HTTP ${res.status} ${await res.text().catch(() => '')}`);
+  return { scores: (await res.json()) as OddsApiScore[], quota: quotaFrom(res) };
+}
+
 export interface ConsensusOdds {
   /** Media entre casas para cada jugador, con el número de casas. */
   home: { mean: number; max: number; books: number };

@@ -2,15 +2,25 @@
 import Base from '../layouts/Base.astro';
 import Buscador from '../components/Buscador.tsx';
 import MatchList from '../components/MatchList.tsx';
-import { getStats, getUpcomingMatches, getPaperSummary } from '../lib/queries';
+import LiveMatches from '../components/LiveMatches.tsx';
+import TournamentCards from '../components/TournamentCards.astro';
+import {
+  getStats, getUpcomingMatches, getPaperSummary,
+  getLiveMatches, getLiveTournaments, getUpcomingTournaments, getRecentTournaments,
+} from '../lib/queries';
 
 export const prerender = false;
 
-const [stats, upcoming, paper] = await Promise.all([
-  getStats(),
-  getUpcomingMatches(20),
-  getPaperSummary(),
-]);
+const [stats, upcoming, paper, liveMatches, liveTourns, upcomingTourns, recentTourns] =
+  await Promise.all([
+    getStats(),
+    getUpcomingMatches(12),
+    getPaperSummary(),
+    getLiveMatches(),
+    getLiveTournaments(),
+    getUpcomingTournaments(9),
+    getRecentTournaments(9),
+  ]);
 
 const n = (x: number) => x.toLocaleString('es-CL');
 const cards = [
@@ -32,6 +42,23 @@ const cards = [
     ))}
   </section>
 
+  {/* En vivo: se hidrata y se auto-refresca; si no hay nada, no pinta nada. */}
+  <LiveMatches client:load initial={liveMatches} />
+
+  {liveTourns.length > 0 && (
+    <section class="mb-8">
+      <h2 class="mb-3 text-lg font-semibold">Torneos en vivo</h2>
+      <TournamentCards tournaments={liveTourns} />
+    </section>
+  )}
+
+  {upcomingTourns.length > 0 && (
+    <section class="mb-8">
+      <h2 class="mb-3 text-lg font-semibold">Torneos próximos</h2>
+      <TournamentCards tournaments={upcomingTourns} />
+    </section>
+  )}
+
   <section class="mb-8">
     <h2 class="mb-3 text-lg font-semibold">Próximos partidos</h2>
     {upcoming.length > 0 ? (
@@ -40,13 +67,18 @@ const cards = [
       <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
         <p>No hay partidos programados ahora mismo.</p>
         <p class="mt-2 text-xs leading-relaxed text-slate-500">
-          El calendario futuro viene de The Odds API, que solo cubre Grand Slams, Masters 1000 y
-          algunos 500 — y hay semanas sin ningún torneo cubierto. En cuanto arranque uno, el
-          proceso diario lo recogerá automáticamente. Mientras tanto, puedes explorar los
-          {' '}{n(stats.completed)} partidos ya jugados con el buscador.
+          El calendario futuro y los marcadores en vivo vienen de The Odds API, que solo cubre Grand
+          Slams, Masters 1000 y algunos 500 — y hay semanas sin ningún torneo cubierto. Challenger y
+          torneos 250 no tienen datos disponibles. En cuanto arranque un torneo cubierto, el proceso
+          diario lo recogerá. Mientras tanto, explora los torneos recientes o usa el buscador.
         </p>
       </div>
     )}
+  </section>
+
+  <section class="mb-8">
+    <h2 class="mb-3 text-lg font-semibold">Torneos recientes</h2>
+    <TournamentCards tournaments={recentTourns} />
   </section>
 
   {paper && (

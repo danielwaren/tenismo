@@ -1,0 +1,46 @@
+name: Marcadores en vivo
+
+# Refresca los marcadores en vivo cada 30 minutos. Es un workflow aparte del
+# diario porque su cadencia es distinta.
+#
+# COSTE DE CUOTA — importante:
+#   scores-ingest llama primero a /sports (GRATIS) y solo pide /scores si hay un
+#   torneo cubierto activo. Por tanto, fuera de un Grand Slam / Masters 1000 este
+#   workflow gasta CERO créditos aunque corra cada 30 minutos.
+#
+#   Durante un torneo cubierto sí gasta ~1-2 créditos por corrida. A 30 min son
+#   ~48/día; un Grand Slam de 2 semanas rondaría los 600-1300 créditos, por
+#   encima de los 500/mes del plan gratuito. Opciones si eso importa:
+#     · subir el intervalo a '*/60' o '*/120' durante torneos grandes,
+#     · o desactivar este workflow (Actions → Marcadores en vivo → Disable) y
+#       quedarse con el refresco diario del cron principal.
+#
+# Los marcadores son GRUESOS (sets por jugador) y solo de torneos cubiertos:
+# nada de Challenger ni 250, que no tienen datos en ninguna fuente.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: en-vivo-turso
+  cancel-in-progress: true
+
+jobs:
+  scores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Refrescar marcadores en vivo
+        run: npx tsx scripts/scores-ingest.ts
