@@ -47,6 +47,14 @@ async function main() {
   const client = db();
   const book = arg('book', 'pinnacle');
   const minConf = Number(arg('min-confidence', '0'));
+  const fromSeason = Number(arg('from-season', '0'));
+
+  // Hay varias versiones de modelo conviviendo en model_outputs (el Elo puro y
+  // el ajuste con features). Sin filtrar por versión, el join devuelve una fila
+  // por versión y las métricas salen mezcladas.
+  const version =
+    arg('version', '') ||
+    String((await client.execute("select v from app_config where k = 'model_version'")).rows[0]?.v ?? '');
 
   // Una fila por partido resuelto con predicción; las cuotas de la casa elegida
   // se pivotan a columnas para poder devigar el mercado de dos vías.
@@ -56,12 +64,13 @@ async function main() {
              o1.odds as odds_p1, o2.odds as odds_p2
       from matches m
       join tours t on t.id = m.tour_id
-      join model_outputs mo on mo.match_id = m.id
+      join model_outputs mo on mo.match_id = m.id and mo.model_version = ?
       left join odds o1 on o1.match_id = m.id and o1.selection = 'p1' and o1.bookmaker = ?
       left join odds o2 on o2.match_id = m.id and o2.selection = 'p2' and o2.bookmaker = ?
-      where m.status = 'completed' and m.p1_won is not null and mo.confidence >= ?
+      where m.status = 'completed' and m.p1_won is not null
+        and coalesce(mo.confidence, 1) >= ? and m.season >= ?
     `,
-    args: [book, book, minConf],
+    args: [version, book, book, minConf, fromSeason],
   })).rows;
 
   if (!rows.length) {
@@ -103,7 +112,9 @@ async function main() {
     push(bySeason, Number(r.season));
   }
 
-  console.log(`Casa de referencia: ${book}${minConf > 0 ? `   ·   confianza mínima ${minConf}` : ''}`);
+  console.log(`Modelo: ${version}   ·   casa de referencia: ${book}` +
+    `${minConf > 0 ? `   ·   confianza mínima ${minConf}` : ''}` +
+    `${fromSeason ? `   ·   desde ${fromSeason}` : ''}`);
   console.log(`Partidos con predicción: ${model.length}   ·   con cuota de cierre: ${market.length}`);
 
   report('GLOBAL — modelo vs mercado (mismos partidos)', pairedModel, market);

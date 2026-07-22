@@ -47,9 +47,15 @@ Para trabajar contra Turso en vez del fichero local, basta con cambiar
 |---|---|
 | `npm run db:migrate` | aplica `db/migrations/*.sql` una sola vez |
 | `npm run db:ingest` | descarga e ingiere temporadas (`--from`, `--to`, `--tour`, `--force`) |
-| `npm run db:elo` | entrena el Elo (incremental; `--reset` reentrena todo) |
+| `npm run db:elo` | entrena el Elo y calcula features (incremental; `--reset` reentrena todo) |
+| `npx tsx scripts/fit-model.ts` | ajusta los pesos y los evalúa fuera de muestra |
+| `npx tsx scripts/predict.ts` | aplica los pesos guardados a los partidos sin predicción |
 | `npx tsx scripts/evaluate.ts` | compara el modelo contra la cuota de cierre |
 | `npm test` | tests del modelo (`@tti/model`) |
+
+Ajustar y predecir están separados a propósito: el cron diario **solo predice**.
+Reajustar a diario cambiaría el modelo en silencio y las métricas dejarían de ser
+comparables entre días.
 
 ## Datos
 
@@ -65,14 +71,22 @@ Estado actual de la base local: **66.834 partidos**, 64.366 completados,
 
 ## El modelo
 
-`@tti/model` — TypeScript puro, sin dependencias, testeado con vitest.
+`@tti/model` — TypeScript puro, sin dependencias, testeado con vitest (43 tests).
+
+Elo por superficie **como feature** de una regresión logística:
 
 - **Elo logístico binario**: `P(gana A) = 1 / (1 + 10^((eloB - eloA)/400))`.
 - **K dinámico** (parametrización de FiveThirtyEight para tenis):
-  `k = 250 / (partidos + 5)^0.4`. Un debutante se mueve mucho; un veterano, poco.
+  `k = 250 / (partidos + 5)^0.4`, escalado por categoría de torneo y por ronda.
 - **Rating por superficie encogido hacia el global**: el peso de la superficie es
   `n / (n + 20)` con tope 0,75. Tres partidos afortunados en hierba no convierten
   a nadie en especialista.
+- **13 features** encima: ranking oficial, head-to-head encogido, carga e
+  intensidad recientes, descanso, forma, experiencia y la interacción con el
+  formato al mejor de 5.
+- **Sin término independiente**: todas las features son diferencias orientadas a
+  p1, así que el modelo es antisimétrico — intercambiar a los jugadores devuelve
+  exactamente `1-p`.
 - **Confianza 0..1** según el historial del jugador con menos partidos y la
   muestra en esa superficie. Gobierna qué partidos son aptos para Paper Trading.
 
@@ -85,26 +99,35 @@ no son comparables entre circuitos.
 predicción calculada con los ratings **previos** al partido antes de
 actualizarlos. `model_outputs` es por tanto un backtest walk-forward legítimo.
 
-### Resultados (64.366 partidos, 2013–2026)
+### Resultados fuera de muestra (test 2024–2026, 9.862 partidos con cuota)
 
-| | Modelo | Mercado (Pinnacle devigado) |
-|---|---|---|
-| Brier | 0,219 | **0,199** |
-| LogLoss | 0,629 | **0,581** |
-| Acierto del favorito | 64,7% | **68,7%** |
+Train hasta 2022, validación 2023 (solo para elegir el L2), test de 2024 en
+adelante — nunca usado para ajustar nada. El reparto es por temporada, no
+aleatorio.
 
-**El modelo todavía NO le gana al mercado**, y así hay que leerlo: cualquier
-"edge" que calcule hoy es ruido, no value. Ese es el criterio para activar o no
-el Paper Trading en la Fase 2.
+| | Elo solo | Con features | Mercado |
+|---|---|---|---|
+| Brier | 0,2233 | **0,2159** | 0,2027 |
+| LogLoss | 0,6380 | **0,6197** | 0,5890 |
+| Acierto del favorito | 63,3% | **64,4%** | 68,0% |
 
-El diagrama de fiabilidad muestra un sesgo sistemático de **sobreconfianza**
-(predice 0,06 donde ocurre 0,13; predice 0,94 donde ocurre 0,90). Un ajuste
-Platt entrenado en 2013–2023 y evaluado **fuera de muestra** en 2024–2026 cierra
-el 19% de la distancia al mercado — trabajo de la Fase 4.
+Las features cierran el **36%** de la distancia al mercado (la recalibración
+Platt sola cerraba el 19%), y la calibración queda prácticamente resuelta:
+los desvíos del diagrama de fiabilidad bajan de ±0,09 a ±0,02.
+
+**Aun así el modelo NO le gana al mercado**, y así hay que leerlo: sus "edges"
+todavía no son value demostrado. Si se monta el Paper Trading de la Fase 2, debe
+nacer con el flag de value apagado y servir para medir CLV, no para buscar
+ganancia. Detalle en [docs/03-fase-1-5-modelo.md](docs/03-fase-1-5-modelo.md).
 
 ## Fases
 
 1. **Cimientos** — esquema, scaffold, ingesta histórica, Elo por superficie. ✅
+1.5. **Modelo** — features (ranking, h2h, fatiga, forma, K por ronda) y ajuste
+   logístico evaluado fuera de muestra. ✅
 2. **Cuotas reales + Paper Trading** — The Odds API, simulador binario.
 3. **Frontend** — dashboard, ficha de partido, ranking, buscador.
-4. **Calibración** — recalibración post-hoc sobre muestra real.
+4. **Calibración** — en buena parte resuelta ya en la 1.5; queda revisarla
+   cuando haya muestra de partidos futuros reales.
+
+Puesta en producción (GitHub + Turso): [docs/02-git-y-turso.md](docs/02-git-y-turso.md).

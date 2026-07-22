@@ -60,12 +60,24 @@ jobs:
         # todos los días sería tirar ancho de banda de la fuente.
         run: npm run db:ingest -- --from $(date -u +%Y) --force
 
-      - name: Entrenar Elo
+      - name: Entrenar Elo y calcular features
         run: |
           if [ "${{ inputs.reset_elo }}" = "true" ]; then
             npm run db:elo -- --reset
           else
             npm run db:elo
+          fi
+
+      - name: Predecir los partidos nuevos
+        # Aplica los pesos YA ajustados; NO reajusta el modelo. Reajustar a
+        # diario lo iría cambiando solo, en silencio, y ninguna métrica
+        # publicada seguiría siendo comparable con la del día anterior.
+        # Reajustar es una decisión explícita: scripts/fit-model.ts.
+        run: |
+          if [ "${{ inputs.reset_elo }}" = "true" ]; then
+            npx tsx scripts/predict.ts --all
+          else
+            npx tsx scripts/predict.ts
           fi
 
       - name: Evaluación contra el mercado

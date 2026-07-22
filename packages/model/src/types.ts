@@ -51,16 +51,41 @@ export const DEFAULT_ELO: EloParams = {
   minMatchesConfident: 10,
 };
 
-/** Multiplicador de K por importancia del torneo. */
+/**
+ * Multiplicador de K por importancia del torneo. Incluye la nomenclatura WTA
+ * antigua (International / Premier / Tour Championships), que sigue viva en las
+ * temporadas anteriores a 2021 del histórico.
+ */
 export const TOURNAMENT_WEIGHT: Record<string, number> = {
   'grand slam': 1.2,
   'masters 1000': 1.1,
-  'atp500': 1.0,
-  'atp250': 0.95,
-  'wta1000': 1.1,
-  'wta500': 1.0,
-  'wta250': 0.95,
   'masters cup': 1.1,
+  atp500: 1.0,
+  atp250: 0.95,
+  wta1000: 1.1,
+  wta500: 1.0,
+  wta250: 0.95,
+  'tour championships': 1.1,
+  premier: 1.05,
+  international: 0.95,
+  default: 1.0,
+};
+
+/**
+ * Multiplicador de K por ronda: una final se juega con más en juego y entre
+ * jugadores ya filtrados por el cuadro, así que su resultado informa más que
+ * una primera ronda. El efecto es deliberadamente suave — la ronda es una señal
+ * de contexto, no el factor dominante.
+ */
+export const ROUND_WEIGHT: Record<string, number> = {
+  'the final': 1.15,
+  semifinals: 1.1,
+  quarterfinals: 1.05,
+  '4th round': 1.02,
+  '3rd round': 1.0,
+  '2nd round': 0.98,
+  '1st round': 0.95,
+  'round robin': 1.0,
   default: 1.0,
 };
 

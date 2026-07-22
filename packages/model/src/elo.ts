@@ -1,5 +1,6 @@
 import {
   DEFAULT_ELO,
+  ROUND_WEIGHT,
   TOURNAMENT_WEIGHT,
   type EloParams,
   type MatchPrediction,
@@ -40,6 +41,17 @@ export function kFactor(matches: number, params: EloParams = DEFAULT_ELO): numbe
 export function tournamentWeight(series?: string | null): number {
   if (!series) return TOURNAMENT_WEIGHT.default;
   return TOURNAMENT_WEIGHT[series.trim().toLowerCase()] ?? TOURNAMENT_WEIGHT.default;
+}
+
+/** Multiplicador de K según la ronda. */
+export function roundWeight(round?: string | null): number {
+  if (!round) return ROUND_WEIGHT.default;
+  return ROUND_WEIGHT[round.trim().toLowerCase()] ?? ROUND_WEIGHT.default;
+}
+
+/** Peso total del partido: categoría × ronda. */
+export function matchWeight(series?: string | null, round?: string | null): number {
+  return tournamentWeight(series) * roundWeight(round);
 }
 
 /**
@@ -192,6 +204,8 @@ export function updateRatings(
     p1Won: boolean;
     /** Categoría del torneo, para escalar K. */
     series?: string | null;
+    /** Ronda, para escalar K. */
+    round?: string | null;
   },
   params: EloParams = DEFAULT_ELO,
 ): {
@@ -205,7 +219,7 @@ export function updateRatings(
   const e2 = effectiveElo(args.p2Overall, args.p2Surface, params);
   const exp1 = expectedWinProb(e1, e2);
   const score1 = args.p1Won ? 1 : 0;
-  const w = tournamentWeight(args.series);
+  const w = matchWeight(args.series, args.round);
 
   const bump = (r: Rating, expected: number, score: number): Rating => ({
     elo: r.elo + kFactor(r.matches, params) * w * (score - expected),
