@@ -60,6 +60,21 @@ jobs:
         # todos los días sería tirar ancho de banda de la fuente.
         run: npm run db:ingest -- --from $(date -u +%Y) --force
 
+      - name: Reconciliar programados con jugados
+        # Antes de nada: los partidos que ya se jugaron dejan de ser 'scheduled'
+        # y sus cuotas y apuestas se mueven a la fila definitiva. Si no, las
+        # apuestas simuladas apuntarían a un partido sin resultado y nunca se
+        # liquidarían.
+        run: npx tsx scripts/reconcile.ts
+
+      - name: Cuotas y calendario futuro (The Odds API)
+        # Única fuente de partidos futuros: tennis-data solo publica lo jugado.
+        # Sin ODDS_API_KEY es un no-op explícito; en semanas sin torneos
+        # cubiertos no gasta ni un crédito.
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: npx tsx scripts/odds-ingest.ts
+
       - name: Entrenar Elo y calcular features
         run: |
           if [ "${{ inputs.reset_elo }}" = "true" ]; then
@@ -79,6 +94,11 @@ jobs:
           else
             npx tsx scripts/predict.ts
           fi
+
+      - name: Paper Trading (simulado, modo auditoría)
+        # Coloca apuestas FICTICIAS sobre partidos con cuota real y liquida las
+        # ya resueltas. No ejecuta nada real ni habla con ninguna casa.
+        run: npx tsx scripts/paper-trade.ts
 
       - name: Evaluación contra el mercado
         # No falla el job: es un informe que queda en el log para vigilar que el

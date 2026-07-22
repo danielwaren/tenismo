@@ -116,10 +116,10 @@ async function main() {
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);
-  if (!pending.rows.length) {
-    console.log('Nada que entrenar.');
-    return;
-  }
+  // Sin partidos jugados nuevos NO se puede salir aquí: los partidos
+  // programados siguen necesitando sus features y su pronóstico, y en un día
+  // normal (sin resultados nuevos pero con calendario futuro) eso es justo lo
+  // único que hay que hacer.
 
   const historyStmts: { sql: string; args: unknown[] }[] = [];
   const predictionStmts: { sql: string; args: unknown[] }[] = [];
@@ -134,6 +134,12 @@ async function main() {
   const h2hSurf = new Map<string, { low: number; high: number }>();
   const pairKey = (a: number, b: number, surface?: string | null) =>
     `${Math.min(a, b)}:${Math.max(a, b)}${surface ? `:${surface}` : ''}`;
+
+  // Último ranking oficial visto de cada jugador. Los partidos FUTUROS no traen
+  // ranking (la fuente solo lo publica con el resultado), así que se arrastra el
+  // último conocido: el ranking se mueve despacio y es mejor proxy que asumir
+  // que ambos jugadores están igual de clasificados.
+  const ultimoRank = new Map<number, { rank: number | null; points: number | null }>();
 
   for (const row of pending.rows) {
     const matchId = Number(row.id);
@@ -159,6 +165,9 @@ async function main() {
     const rankP2 = Number(p1IsWinner ? row.loser_rank : row.winner_rank) || null;
     const ptsP1 = Number(p1IsWinner ? row.winner_points : row.loser_points) || null;
     const ptsP2 = Number(p1IsWinner ? row.loser_points : row.winner_points) || null;
+
+    ultimoRank.set(p1, { rank: rankP1, points: ptsP1 });
+    ultimoRank.set(p2, { rank: rankP2, points: ptsP2 });
 
     const hAll = h2hAll.get(pairKey(p1, p2)) ?? { low: 0, high: 0 };
     const hSurf = h2hSurf.get(pairKey(p1, p2, surface)) ?? { low: 0, high: 0 };
@@ -274,6 +283,77 @@ async function main() {
     }
 
     appliedIds.push(matchId);
+  }
+
+  // ── Partidos PROGRAMADOS ───────────────────────────────────────────────────
+  // Llegados aquí, el estado en memoria (ratings, historial, head-to-head,
+  // rankings) está al día. Es el momento natural para generar las features de
+  // los partidos que todavía no se han jugado, sin duplicar la lógica.
+  const programados = await client.execute(`
+    select m.id, m.p1_id, m.p2_id, m.surface, m.played_on, m.best_of, tr.series
+    from matches m
+    join tournaments tr on tr.id = m.tournament_id
+    where m.status = 'scheduled'
+    order by m.played_on, m.id
+  `);
+
+  for (const row of programados.rows) {
+    const matchId = Number(row.id);
+    const p1 = Number(row.p1_id);
+    const p2 = Number(row.p2_id);
+    const surface = (row.surface as string | null) ?? null;
+    const playedOn = String(row.played_on);
+
+    const a = get(p1, surface);
+    const b = get(p2, surface);
+    const st1 = state.get(p1)!;
+    const st2 = state.get(p2)!;
+    const load1 = loadInWindow(st1.history, playedOn);
+    const load2 = loadInWindow(st2.history, playedOn);
+    const hAll = h2hAll.get(pairKey(p1, p2)) ?? { low: 0, high: 0 };
+    const hSurf = h2hSurf.get(pairKey(p1, p2, surface)) ?? { low: 0, high: 0 };
+    const r1 = ultimoRank.get(p1) ?? { rank: null, points: null };
+    const r2 = ultimoRank.get(p2) ?? { rank: null, points: null };
+
+    const eloDiffSurface = (effectiveElo(a.all, a.surf) - effectiveElo(b.all, b.surf)) / 400;
+    const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+
+    featureStmts.push({
+      sql: `insert or replace into match_features
+            (match_id, elo_diff_surface, elo_diff_overall, rank_log_diff, points_log_diff,
+             h2h, h2h_surface, load_diff, intensity_diff, rest_diff, form_diff, exp_diff,
+             surface_exp_diff, best_of5_elo_diff)
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      args: [
+        matchId, r4(eloDiffSurface), r4((a.all.elo - b.all.elo) / 400),
+        r4(rankLogDiff(r1.rank, r2.rank)), r4(pointsLogDiff(r1.points, r2.points)),
+        r4(shrunkH2H(hAll.low, hAll.high)), r4(shrunkH2H(hSurf.low, hSurf.high)),
+        r4(loadDiff(load1.matches, load2.matches)),
+        r4(intensityDiff(load1.games, load1.matches, load2.games, load2.matches)),
+        r4(restDiff(daysSinceLast(st1.history, playedOn), daysSinceLast(st2.history, playedOn))),
+        r4(formDiff(recentForm(st1.history), recentForm(st2.history))),
+        r4(expDiff(a.all.matches, b.all.matches)), r4(expDiff(a.surf.matches, b.surf.matches)),
+        r4(bestOf5EloDiff(eloDiffSurface, Number(row.best_of) || null)),
+      ],
+    });
+
+    const pred = predictMatch({
+      surface: (surface ?? 'hard') as Surface,
+      p1: { overall: a.all, surface: a.surf },
+      p2: { overall: b.all, surface: b.surf },
+    });
+    predictionStmts.push({
+      sql: `insert or replace into model_outputs
+            (match_id, model_version, prob_p1, prob_p2, confidence, explanation)
+            values (?, ?, ?, ?, ?, ?)`,
+      args: [
+        matchId, modelVersion, Math.round(pred.probP1 * 1e6) / 1e6,
+        Math.round(pred.probP2 * 1e6) / 1e6, pred.confidence, JSON.stringify(pred.reasons),
+      ],
+    });
+  }
+  if (programados.rows.length) {
+    console.log(`Partidos programados con features y pronóstico: ${programados.rows.length}`);
   }
 
   // ── Persistencia ───────────────────────────────────────────────────────────

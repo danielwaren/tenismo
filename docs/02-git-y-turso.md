@@ -73,6 +73,10 @@ repository secret*:
 |---|---|
 | `TURSO_DATABASE_URL` | `libsql://tenismo-danielgu.aws-us-west-2.turso.io` |
 | `TURSO_AUTH_TOKEN` | el token (usa uno **nuevo**, ver aviso del final) |
+| `ODDS_API_KEY` | la key de The Odds API (también **nueva**: la anterior se expuso) |
+
+Sin `ODDS_API_KEY` el resto del cron funciona igual; solo se salta la ingesta de
+cuotas, que es un no-op explícito y nunca inventa precios.
 
 Sin estos dos, el workflow falla a propósito en el primer paso en vez de correr
 en vacío y aparentar que todo va bien.
@@ -113,5 +117,8 @@ turso db tokens invalidate tenismo    # invalida TODOS los tokens anteriores
 turso db tokens create tenismo        # genera uno nuevo
 ```
 
-Regla general: si un token acaba en un chat, un commit o una captura, se rota.
-No se "vigila", se rota.
+Lo mismo con la **key de The Odds API**: también se pegó en el chat. Se regenera
+desde el panel de the-odds-api.com y se actualiza en `.env` y en los secrets.
+
+Regla general: si una credencial acaba en un chat, un commit o una captura, se
+rota. No se "vigila", se rota.
