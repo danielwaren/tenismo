@@ -21,8 +21,8 @@
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
-import { fetchScoreboard, surfaceHint, type EspnMatch, type EspnTournament } from './lib/espn';
-import { buildIndex, resolvePlayer } from './lib/players';
+import { fetchScoreboard, surfaceHint, type EspnMatch, type EspnTournament } from '../src/lib/espn';
+import { buildIndex, resolvePlayer } from '../src/lib/players';
 import { normalizeName } from '@tti/model';
 
 loadEnv();

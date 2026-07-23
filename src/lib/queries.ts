@@ -320,36 +320,11 @@ export interface LiveMatchRow extends MatchRow {
   tournamentId: number;
 }
 
-export async function getLiveMatches(): Promise<LiveMatchRow[]> {
-  const c = db();
-  const version = await getModelVersion();
-  const res = await c.execute({
-    sql: `
-      select m.id, t.code as tour, tr.name as tournament, tr.id as tournament_id,
-             m.surface, m.round, m.played_on, m.status,
-             p1.name as p1_name, p2.name as p2_name, m.p1_won,
-             mo.prob_p1, mo.confidence,
-             ls.score_p1, ls.score_p2, ls.state as live_state
-      from live_scores ls
-      join matches m on m.id = ls.match_id
-      join tours t on t.id = m.tour_id
-      join tournaments tr on tr.id = m.tournament_id
-      join players p1 on p1.id = m.p1_id
-      join players p2 on p2.id = m.p2_id
-      left join model_outputs mo on mo.match_id = m.id and mo.model_version = ?
-      where ls.state = 'live'
-      order by ls.updated_at desc
-    `,
-    args: [version],
-  });
-  return res.rows.map((r) => ({
-    ...mapMatch(r),
-    tournamentId: Number(r.tournament_id),
-    scoreP1: (r.score_p1 as string | null) ?? null,
-    scoreP2: (r.score_p2 as string | null) ?? null,
-    liveState: String(r.live_state),
-  }));
-}
+// Los partidos en vivo NO se leen de `live_scores`: esa tabla solo la refresca
+// el cron y dejaba la web con una foto vieja (partidos terminados marcados como
+// en vivo, y los recién empezados sin aparecer). Se consultan a ESPN en el
+// momento — ver src/lib/live.ts. `live_scores` se conserva porque alimenta los
+// contadores "en vivo" de las tarjetas de torneo.
 
 export interface FeatureContribution {
   name: FeatureName;

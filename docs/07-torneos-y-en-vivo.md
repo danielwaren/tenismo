@@ -69,9 +69,36 @@ Límites honestos, reflejados en la UI:
   ESPN tampoco lo tiene.
 - **Solo cuando hay torneos en curso**.
 
-El dashboard trae una tarjeta que se **auto-refresca cada 30 s** consultando
+El dashboard trae una tarjeta que se **auto-refresca cada 20 s** consultando
 `/api/live`, con etiqueta "VIVO" pulsante, marcador set por set, indicador del
 líder por sets ganados y el pronóstico del modelo.
+
+## Corrección: el "en vivo" se consulta al momento, no al cron
+
+Los marcadores se leían de la tabla `live_scores`, que solo refrescaba el cron
+cada 15 minutos. La consecuencia la vio el usuario: **Buse vs Etcheverry estaba
+jugándose y no aparecía**, mientras que Báez vs Hanfmann, ya terminado, seguía
+pintado como "EN VIVO".
+
+Ahora `src/lib/live.ts` consulta ESPN **en el momento de la petición**, con una
+caché en memoria de 12 s (y colapsando peticiones paralelas) para no disparar
+una llamada por visita. Como ESPN es gratis y sin cuota, esto no cuesta nada.
+
+- El SSR del panel llama a `getLiveNow()` **antes** que a las consultas de
+  torneos, para que los contadores "en vivo" de las tarjetas ya salgan al día.
+- El cliente refresca cada 20 s y también al volver a la pestaña, con un
+  indicador de "actualizado hace Xs".
+- `live_scores` se sigue escribiendo (desde la propia consulta y desde el cron)
+  porque alimenta los contadores de las tarjetas de torneo.
+
+`getLiveMatches()` se eliminó: leía la foto vieja y ya no la usaba nadie.
+
+### Detalle de correctitud: el set en curso no cuenta
+
+El indicador ▸ del líder contaba como ganado el set que se estaba jugando: con
+1-4 en el primero marcaba líder al rival cuando aún no había ganado nada. Ahora
+`src/lib/score.ts` solo cuenta sets **cerrados** (6 con dos de ventaja, o 7), y
+si van igualados no marca a nadie. Con tests propios.
 
 ### Sin coste de cuota
 

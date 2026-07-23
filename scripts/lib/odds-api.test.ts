@@ -3,7 +3,7 @@ import {
   consensusFromEvent, tourFromSportKey, tournamentNameFromKey, TOURNAMENT_INFO,
   type OddsApiEvent,
 } from './odds-api';
-import { buildIndex, resolvePlayer, candidateSlugs } from './players';
+import { buildIndex, resolvePlayer, candidateSlugs } from '../../src/lib/players';
 
 /**
  * Payload de ejemplo con la forma documentada de The Odds API. NO son cuotas

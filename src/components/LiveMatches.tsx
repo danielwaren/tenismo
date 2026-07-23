@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { LiveMatchRow } from '../lib/queries';
 import { SURFACE_ES } from '../lib/format';
+import { setsWon } from '../lib/score';
 
 /**
  * Tarjetas de partidos EN VIVO, con etiqueta "VIVO" y marcador en directo.
@@ -17,20 +18,10 @@ function pulse() {
   </span>;
 }
 
-/** Sets ganados a partir del marcador "6 7 6" vs "4 6 4". */
-function setsWon(a: string | null, b: string | null): [number, number] {
-  if (!a || !b) return [0, 0];
-  const xa = a.trim().split(/\s+/).map(Number);
-  const xb = b.trim().split(/\s+/).map(Number);
-  let wa = 0, wb = 0;
-  for (let i = 0; i < Math.min(xa.length, xb.length); i++) {
-    if (xa[i] > xb[i]) wa++; else if (xb[i] > xa[i]) wb++;
-  }
-  return [wa, wb];
-}
-
 function Card({ m }: { m: LiveMatchRow }) {
   const [wP1, wP2] = setsWon(m.scoreP1, m.scoreP2);
+  // El marcador ▸ señala quién va por delante EN SETS, no quién lleva más
+  // juegos del set que se está jugando.
   const p1Lead = wP1 > wP2;
   const p2Lead = wP2 > wP1;
   return (
@@ -65,27 +56,44 @@ function Card({ m }: { m: LiveMatchRow }) {
 
 export default function LiveMatches({ initial = [] }: { initial?: LiveMatchRow[] }) {
   const [matches, setMatches] = useState<LiveMatchRow[]>(initial);
+  const [agoSec, setAgoSec] = useState(0);
 
   useEffect(() => {
     let alive = true;
     const tick = async () => {
       try {
-        const res = await fetch('/api/live');
+        const res = await fetch('/api/live', { cache: 'no-store' });
         const data = await res.json();
-        if (alive) setMatches(data.matches ?? []);
+        if (!alive) return;
+        setMatches(data.matches ?? []);
+        setAgoSec(0);
       } catch { /* red intermitente: se reintenta en el siguiente tick */ }
     };
-    const timer = setInterval(tick, 30_000);
-    return () => { alive = false; clearInterval(timer); };
+    // 20 s: el servidor cachea 12 s, así que no se martillea a ESPN.
+    const poll = setInterval(tick, 20_000);
+    const clock = setInterval(() => setAgoSec((s) => s + 1), 1_000);
+    // Al volver a la pestaña, refresca de inmediato en vez de esperar al tick.
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      alive = false;
+      clearInterval(poll); clearInterval(clock);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   if (!matches.length) return null;
 
   return (
     <section className="mb-8">
-      <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
-        {pulse()} En vivo
-      </h2>
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+          {pulse()} En vivo
+        </h2>
+        <span className="text-2xs tabular-nums text-ink-faint" aria-live="polite">
+          actualizado hace {agoSec < 60 ? `${agoSec}s` : `${Math.floor(agoSec / 60)} min`}
+        </span>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {matches.map((m) => <Card key={m.id} m={m} />)}
       </div>

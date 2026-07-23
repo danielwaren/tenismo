@@ -19,7 +19,7 @@ import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
 import { fetchSports, fetchOdds, consensusFromEvent, tourFromSportKey, TOURNAMENT_INFO, tournamentNameFromKey } from './lib/odds-api';
-import { buildIndex, resolvePlayer } from './lib/players';
+import { buildIndex, resolvePlayer } from '../src/lib/players';
 
 loadEnv();
 

@@ -6,17 +6,22 @@ import LiveMatches from '../components/LiveMatches.tsx';
 import TournamentCards from '../components/TournamentCards.astro';
 import {
   getStats, getUpcomingMatches, getPaperSummary,
-  getLiveMatches, getLiveTournaments, getUpcomingTournaments, getRecentTournaments,
+  getLiveTournaments, getUpcomingTournaments, getRecentTournaments,
 } from '../lib/queries';
+import { getLiveNow } from '../lib/live';
 
 export const prerender = false;
 
-const [stats, upcoming, paper, liveMatches, liveTourns, upcomingTourns, recentTourns] =
+// El "en vivo" se consulta a ESPN en el momento (no la foto del último cron), y
+// va PRIMERO para que los contadores de torneos que se calculan después ya vean
+// los partidos en curso actualizados.
+const liveMatches = await getLiveNow();
+
+const [stats, upcoming, paper, liveTourns, upcomingTourns, recentTourns] =
   await Promise.all([
     getStats(),
     getUpcomingMatches(12),
     getPaperSummary(),
-    getLiveMatches(),
     getLiveTournaments(),
     getUpcomingTournaments(9),
     getRecentTournaments(9),

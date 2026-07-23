@@ -10,7 +10,7 @@
  */
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
-import { buildIndex, resolvePlayer } from './lib/players';
+import { buildIndex, resolvePlayer } from '../src/lib/players';
 
 loadEnv();
 
