@@ -1,26 +1,17 @@
 name: Marcadores en vivo
 
-# Refresca los marcadores en vivo cada 30 minutos. Es un workflow aparte del
-# diario porque su cadencia es distinta.
+# Refresca los torneos en curso y los marcadores en vivo cada 15 minutos, desde
+# ESPN (site.api.espn.com). Es la misma fuente que usa el proyecto de fútbol.
 #
-# COSTE DE CUOTA — importante:
-#   scores-ingest llama primero a /sports (GRATIS) y solo pide /scores si hay un
-#   torneo cubierto activo. Por tanto, fuera de un Grand Slam / Masters 1000 este
-#   workflow gasta CERO créditos aunque corra cada 30 minutos.
+# ESPN es GRATIS y sin cuota, así que este workflow puede correr a menudo sin
+# gastar créditos de ninguna API. Cubre ATP y WTA de circuito principal,
+# incluidos los torneos 250 — pero NO Challenger (no existe en ninguna fuente).
 #
-#   Durante un torneo cubierto sí gasta ~1-2 créditos por corrida. A 30 min son
-#   ~48/día; un Grand Slam de 2 semanas rondaría los 600-1300 créditos, por
-#   encima de los 500/mes del plan gratuito. Opciones si eso importa:
-#     · subir el intervalo a '*/60' o '*/120' durante torneos grandes,
-#     · o desactivar este workflow (Actions → Marcadores en vivo → Disable) y
-#       quedarse con el refresco diario del cron principal.
-#
-# Los marcadores son GRUESOS (sets por jugador) y solo de torneos cubiertos:
-# nada de Challenger ni 250, que no tienen datos en ninguna fuente.
+# Los marcadores son set por set. Solo hay datos cuando hay torneos en curso.
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +25,6 @@ jobs:
     env:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,5 +32,5 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Refrescar marcadores en vivo
-        run: npx tsx scripts/scores-ingest.ts
+      - name: Refrescar torneos y marcadores en vivo (ESPN)
+        run: npx tsx scripts/espn-ingest.ts

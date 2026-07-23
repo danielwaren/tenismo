@@ -17,9 +17,22 @@ function pulse() {
   </span>;
 }
 
+/** Sets ganados a partir del marcador "6 7 6" vs "4 6 4". */
+function setsWon(a: string | null, b: string | null): [number, number] {
+  if (!a || !b) return [0, 0];
+  const xa = a.trim().split(/\s+/).map(Number);
+  const xb = b.trim().split(/\s+/).map(Number);
+  let wa = 0, wb = 0;
+  for (let i = 0; i < Math.min(xa.length, xb.length); i++) {
+    if (xa[i] > xb[i]) wa++; else if (xb[i] > xa[i]) wb++;
+  }
+  return [wa, wb];
+}
+
 function Card({ m }: { m: LiveMatchRow }) {
-  const p1Lead = m.scoreP1 !== null && m.scoreP2 !== null && Number(m.scoreP1) > Number(m.scoreP2);
-  const p2Lead = m.scoreP1 !== null && m.scoreP2 !== null && Number(m.scoreP2) > Number(m.scoreP1);
+  const [wP1, wP2] = setsWon(m.scoreP1, m.scoreP2);
+  const p1Lead = wP1 > wP2;
+  const p2Lead = wP2 > wP1;
   return (
     <a
       href={`/match/${m.id}`}
@@ -35,12 +48,12 @@ function Card({ m }: { m: LiveMatchRow }) {
       </div>
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${p1Lead ? 'text-slate-100' : 'text-slate-300'}`}>{m.p1Name}</span>
-          <span className={`font-mono text-lg tabular-nums ${p1Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP1 ?? '–'}</span>
+          <span className={`text-sm font-medium ${p1Lead ? 'text-slate-100' : 'text-slate-300'}`}>{p1Lead && '▸ '}{m.p1Name}</span>
+          <span className={`font-mono text-base tracking-widest tabular-nums ${p1Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP1 ?? '–'}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${p2Lead ? 'text-slate-100' : 'text-slate-300'}`}>{m.p2Name}</span>
-          <span className={`font-mono text-lg tabular-nums ${p2Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP2 ?? '–'}</span>
+          <span className={`text-sm font-medium ${p2Lead ? 'text-slate-100' : 'text-slate-300'}`}>{p2Lead && '▸ '}{m.p2Name}</span>
+          <span className={`font-mono text-base tracking-widest tabular-nums ${p2Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP2 ?? '–'}</span>
         </div>
       </div>
       {m.probP1 !== null && (
