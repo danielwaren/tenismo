@@ -21,35 +21,35 @@ const f2 = (x: number) => x.toFixed(2);
   {summary && summary.total > 0 ? (
     <>
       <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">Banca</div>
-          <div class="mt-1 font-mono text-2xl tabular-nums text-court-400">{f2(summary.bankroll)}</div>
-          <div class="mt-0.5 text-xs text-slate-500">de {f2(summary.initialBankroll)} inicial</div>
+        <div class="card p-4">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">Banca</div>
+          <div class="mt-1 font-mono text-2xl tabular-nums text-court">{f2(summary.bankroll)}</div>
+          <div class="mt-0.5 text-xs text-ink-faint">de {f2(summary.initialBankroll)} inicial</div>
         </div>
-        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">Apuestas</div>
+        <div class="card p-4">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">Apuestas</div>
           <div class="mt-1 font-mono text-2xl tabular-nums">{summary.total}</div>
-          <div class="mt-0.5 text-xs text-slate-500">{summary.open} abiertas · {summary.won}G / {summary.lost}P</div>
+          <div class="mt-0.5 text-xs text-ink-faint">{summary.open} abiertas · {summary.won}G / {summary.lost}P</div>
         </div>
-        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">ROI</div>
-          <div class={`mt-1 font-mono text-2xl tabular-nums ${summary.roi !== null && summary.roi < 0 ? 'text-red-400' : 'text-court-400'}`}>
+        <div class="card p-4">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">ROI</div>
+          <div class={`mt-1 font-mono text-2xl tabular-nums ${summary.roi !== null && summary.roi < 0 ? 'text-live' : 'text-court'}`}>
             {summary.roi === null ? '—' : `${summary.roi >= 0 ? '+' : ''}${summary.roi.toFixed(1)}%`}
           </div>
-          <div class="mt-0.5 text-xs text-slate-500">sobre lo arriesgado</div>
+          <div class="mt-0.5 text-xs text-ink-faint">sobre lo arriesgado</div>
         </div>
-        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">CLV medio</div>
+        <div class="card p-4">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">CLV medio</div>
           <div class="mt-1 font-mono text-2xl tabular-nums">{summary.clvMean === null ? '—' : signedPct(summary.clvMean)}</div>
-          <div class="mt-0.5 text-xs text-slate-500">{summary.clvPositive}/{summary.clvMeasured} positivos</div>
+          <div class="mt-0.5 text-xs text-ink-faint">{summary.clvPositive}/{summary.clvMeasured} positivos</div>
         </div>
       </section>
 
       <section>
-        <h2 class="mb-3 text-lg font-semibold">Apuestas simuladas</h2>
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
+        <h2 class="mb-3 font-display text-lg font-semibold">Apuestas simuladas</h2>
+        <div class="overflow-x-auto rounded-lg border border-line">
           <table class="w-full text-sm">
-            <thead class="bg-slate-900/70 text-left text-xs uppercase tracking-wide text-slate-400">
+            <thead class="bg-surface-2/50 text-left text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th class="px-3 py-2 font-medium">Partido</th>
                 <th class="px-3 py-2 font-medium">Apuesta</th>
@@ -60,27 +60,27 @@ const f2 = (x: number) => x.toFixed(2);
                 <th class="px-3 py-2 text-right font-medium">CLV</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-800">
+            <tbody class="divide-y divide-line/50">
               {trades.map((t) => (
-                <tr class="hover:bg-slate-900/40">
+                <tr class="hover:bg-surface">
                   <td class="px-3 py-2">
-                    <a href={`/match/${t.matchId}`} class="text-slate-300 no-underline hover:text-court-400">
+                    <a href={`/match/${t.matchId}`} class="text-ink no-underline hover:text-court">
                       {t.p1Name} vs {t.p2Name}
                     </a>
                   </td>
-                  <td class="px-3 py-2 text-slate-300">{t.selectionName}</td>
+                  <td class="px-3 py-2 text-ink">{t.selectionName}</td>
                   <td class="px-3 py-2 text-right font-mono tabular-nums">{t.oddsTaken.toFixed(2)}</td>
-                  <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{signedPct(t.edge)}</td>
+                  <td class="px-3 py-2 text-right font-mono tabular-nums text-ink-muted">{signedPct(t.edge)}</td>
                   <td class="px-3 py-2 text-right font-mono tabular-nums">{t.stake.toFixed(2)}</td>
                   <td class="px-3 py-2 text-right">
                     <span class={`rounded px-1.5 py-0.5 text-xs ${
-                      t.status === 'won' ? 'bg-court-900 text-court-300'
-                      : t.status === 'lost' ? 'bg-red-950 text-red-300'
-                      : 'bg-slate-800 text-slate-400'}`}>
+                      t.status === 'won' ? 'bg-court/15 text-court-ink'
+                      : t.status === 'lost' ? 'bg-live/15 text-live'
+                      : 'bg-surface-2 text-ink-muted'}`}>
                       {t.status === 'won' ? 'Ganada' : t.status === 'lost' ? 'Perdida' : t.status === 'open' ? 'Abierta' : t.status}
                     </span>
                   </td>
-                  <td class={`px-3 py-2 text-right font-mono tabular-nums ${t.clv !== null && t.clv < 0 ? 'text-red-400' : t.clv !== null ? 'text-court-400' : 'text-slate-600'}`}>
+                  <td class={`px-3 py-2 text-right font-mono tabular-nums ${t.clv !== null && t.clv < 0 ? 'text-live' : t.clv !== null ? 'text-court' : 'text-ink-faint'}`}>
                     {t.clv === null ? '—' : signedPct(t.clv)}
                   </td>
                 </tr>
@@ -91,9 +91,9 @@ const f2 = (x: number) => x.toFixed(2);
       </section>
     </>
   ) : (
-    <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5 text-sm leading-relaxed text-slate-400">
+    <div class="rounded-lg border border-line bg-surface p-5 text-sm leading-relaxed text-ink-muted">
       <p>Todavía no hay apuestas simuladas.</p>
-      <p class="mt-2 text-xs text-slate-500">
+      <p class="mt-2 text-xs text-ink-faint">
         El simulador solo coloca apuestas sobre partidos futuros con cuota real registrada, y hoy no
         hay ningún torneo cubierto por The Odds API en curso. En cuanto arranque uno, el proceso
         diario empezará a registrar apuestas aquí.

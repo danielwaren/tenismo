@@ -1,0 +1,9 @@
+---
+// Marca: pelota de tenis en SVG (no emoji: escala nítido y respeta el tema).
+interface Props { class?: string }
+const { class: cls = 'h-7 w-7' } = Astro.props;
+---
+<svg class={cls} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <circle cx="16" cy="16" r="14" fill="hsl(var(--court))" />
+  <path d="M4 9c6 3 6 11 0 14M28 9c-6 3-6 11 0 14" stroke="hsl(var(--bg))" stroke-width="2" fill="none" stroke-linecap="round" />
+</svg>

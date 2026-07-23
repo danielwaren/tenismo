@@ -13,7 +13,6 @@ if (!match) {
 }
 ---
 
-<Base subtitle={`${match.p1Name} vs ${match.p2Name}`}>
-  <a href="/" class="mb-4 inline-block text-sm text-court-400 no-underline hover:underline">← volver</a>
+<Base title={`${match.p1Name} vs ${match.p2Name} · Tennis Trader Intelligence`}>
   <MatchDetailView client:load match={match} />
 </Base>

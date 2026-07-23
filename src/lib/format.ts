@@ -12,8 +12,21 @@ export const SURFACE_DOT: Record<string, string> = {
   hard: 'bg-hard',
   clay: 'bg-clay',
   grass: 'bg-grass',
-  carpet: 'bg-slate-400',
+  carpet: 'bg-ink-faint',
 };
+
+/** Clase de texto+fondo tenue por superficie, para chips. */
+export const SURFACE_CHIP: Record<string, string> = {
+  hard: 'bg-hard/15 text-hard',
+  clay: 'bg-clay/15 text-clay',
+  grass: 'bg-grass/15 text-grass',
+  carpet: 'bg-ink-faint/15 text-ink-muted',
+};
+
+/** Clase del chip de circuito. */
+export function tourChip(tour: string): string {
+  return tour === 'ATP' ? 'bg-hard/15 text-hard' : 'bg-[#c04ad0]/15 text-[#d98be0]';
+}
 
 export function surfaceLabel(s: string | null | undefined): string {
   return s ? (SURFACE_ES[s] ?? s) : '—';

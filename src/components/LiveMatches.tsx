@@ -12,8 +12,8 @@ import { SURFACE_ES } from '../lib/format';
  */
 function pulse() {
   return <span className="relative flex h-2 w-2">
-    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-live opacity-75" />
+    <span className="relative inline-flex h-2 w-2 rounded-full bg-live" />
   </span>;
 }
 
@@ -36,28 +36,26 @@ function Card({ m }: { m: LiveMatchRow }) {
   return (
     <a
       href={`/match/${m.id}`}
-      className="block rounded-lg border border-red-900/50 bg-red-950/10 p-3 no-underline transition hover:border-red-800/70"
+      className="block rounded-xl border border-live/40 bg-live/[0.06] p-3.5 no-underline transition hover:border-live/60"
     >
-      <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="flex items-center gap-1.5 font-semibold text-red-400">
-          {pulse()} VIVO
-        </span>
-        <span className="text-slate-500">
+      <div className="mb-2 flex items-center justify-between text-2xs">
+        <span className="flex items-center gap-1.5 font-semibold text-live">{pulse()} EN VIVO</span>
+        <span className="text-ink-faint">
           {m.tour}{m.surface ? ` · ${SURFACE_ES[m.surface] ?? m.surface}` : ''}{m.round ? ` · ${m.round}` : ''}
         </span>
       </div>
       <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${p1Lead ? 'text-slate-100' : 'text-slate-300'}`}>{p1Lead && '▸ '}{m.p1Name}</span>
-          <span className={`font-mono text-base tracking-widest tabular-nums ${p1Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP1 ?? '–'}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className={`truncate text-sm ${p1Lead ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{p1Lead && '▸ '}{m.p1Name}</span>
+          <span className={`shrink-0 font-mono text-base tracking-widest tabular-nums ${p1Lead ? 'text-court' : 'text-ink-muted'}`}>{m.scoreP1 ?? '–'}</span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${p2Lead ? 'text-slate-100' : 'text-slate-300'}`}>{p2Lead && '▸ '}{m.p2Name}</span>
-          <span className={`font-mono text-base tracking-widest tabular-nums ${p2Lead ? 'text-court-400' : 'text-slate-400'}`}>{m.scoreP2 ?? '–'}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className={`truncate text-sm ${p2Lead ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{p2Lead && '▸ '}{m.p2Name}</span>
+          <span className={`shrink-0 font-mono text-base tracking-widest tabular-nums ${p2Lead ? 'text-court' : 'text-ink-muted'}`}>{m.scoreP2 ?? '–'}</span>
         </div>
       </div>
       {m.probP1 !== null && (
-        <div className="mt-2 border-t border-red-900/30 pt-1.5 text-[11px] text-slate-500">
+        <div className="mt-2 border-t border-live/20 pt-1.5 text-2xs text-ink-faint">
           Pronóstico: {m.p1Name.split(' ')[0]} {Math.round(m.probP1 * 100)}% · {m.p2Name.split(' ')[0]} {Math.round((1 - m.probP1) * 100)}%
         </div>
       )}
@@ -85,7 +83,7 @@ export default function LiveMatches({ initial = [] }: { initial?: LiveMatchRow[]
 
   return (
     <section className="mb-8">
-      <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+      <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
         {pulse()} En vivo
       </h2>
       <div className="grid gap-3 sm:grid-cols-2">

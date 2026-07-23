@@ -71,6 +71,26 @@ async function main() {
   }
 
   console.log(`  fusionados ${fusionados} · aún sin jugar ${sinJugar} · ambiguos ${ambiguos}`);
+
+  // Partidos COMPLETADOS de ESPN (solo-display) que tennis-data ya publicó de
+  // forma autorizada: se borran los de ESPN para no duplicar el cuadro. Sus
+  // cuotas/apuestas, si las hubiera, se mueven al partido de tennis-data.
+  const espnDup = (await client.execute(`
+    select e.id as espn_id, td.id as td_id
+    from matches e
+    join matches td on td.source = 'tennis-data' and td.status = 'completed'
+      and td.tour_id = e.tour_id and td.p1_id = e.p1_id and td.p2_id = e.p2_id
+      and abs(julianday(td.played_on) - julianday(e.played_on)) <= 3
+    where e.source = 'espn' and e.status = 'completed'
+  `)).rows;
+  for (const r of espnDup) {
+    const espnId = Number(r.espn_id), tdId = Number(r.td_id);
+    stmts.push({ sql: 'update odds set match_id = ? where match_id = ?', args: [tdId, espnId] });
+    stmts.push({ sql: 'update paper_trades set match_id = ? where match_id = ?', args: [tdId, espnId] });
+    stmts.push({ sql: 'delete from matches where id = ?', args: [espnId] });
+  }
+  if (espnDup.length) console.log(`  duplicados ESPN→tennis-data retirados: ${espnDup.length}`);
+
   if (dryRun) { console.log('--dry-run: no se ha escrito nada.'); return; }
   if (stmts.length) await runBatch(client, stmts, 'reconciliación');
   console.log('Reconciliación terminada.');

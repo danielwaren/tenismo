@@ -9,9 +9,9 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
 ---
 
 <Base subtitle="Cómo funciona el modelo, qué mide y dónde están sus límites." active="guia">
-  <article class="prose-invert max-w-none space-y-8 text-sm leading-relaxed text-slate-300">
+  <article class="prose-invert max-w-none space-y-8 text-sm leading-relaxed text-ink">
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">Qué es esto</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">Qué es esto</h2>
       <p>
         Una herramienta de análisis para tenis: estima la probabilidad de que gane cada jugador de un
         partido ATP o WTA y la contrasta contra las cuotas reales del mercado. Es de
@@ -21,7 +21,7 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
     </section>
 
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">El modelo, en corto</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">El modelo, en corto</h2>
       <p>
         La base es un <strong>Elo por superficie</strong>: cada jugador tiene un rating global y uno
         por tipo de pista (dura, arcilla, hierba), porque un mismo jugador puede ser temible en
@@ -32,13 +32,13 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
         Sobre ese Elo se monta una <strong>regresión logística</strong> que añade lo que el Elo no ve:
         ranking oficial, head-to-head, carga y desgaste recientes, descanso, forma, experiencia y el
         efecto del formato al mejor de 5 sets. Puedes ver el peso de cada factor en la
-        <a href="/calibracion" class="text-court-400 no-underline hover:underline">página de calibración</a>,
+        <a href="/calibracion" class="text-court no-underline hover:underline">página de calibración</a>,
         y su aporte a un partido concreto en cada ficha.
       </p>
     </section>
 
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">Por qué la "carga reciente" resta</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">Por qué la "carga reciente" resta</h2>
       <p>
         Un detalle que sorprende: jugar más partidos en las últimas dos semanas <em>mejora</em> el
         pronóstico, no lo empeora. No es un error. En tenis, quien más ha jugado es justo quien va
@@ -48,7 +48,7 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
     </section>
 
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">Honestidad sobre los límites</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">Honestidad sobre los límites</h2>
       <p>
         El modelo <strong>todavía no le gana al mercado</strong>. Sobre {cal.matches.toLocaleString('es-CL')}
         partidos fuera de muestra, su Brier es {f(cal.brierModel)} frente a {f(cal.brierMarket)} de la
@@ -57,13 +57,13 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
       <p class="mt-2">
         Es más: cuando el modelo <em>más</em> discrepa del mercado es cuando <em>más</em> se equivoca.
         Un backtest del simulador mostró que apostar a sus mayores "ventajas" pierde más, no menos. Por
-        eso el <a href="/paper-trading" class="text-court-400 no-underline hover:underline">Paper Trading</a>
+        eso el <a href="/paper-trading" class="text-court no-underline hover:underline">Paper Trading</a>
         está en modo auditoría: no busca ganar, sino medir CLV.
       </p>
     </section>
 
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">Qué es el CLV y por qué importa</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">Qué es el CLV y por qué importa</h2>
       <p>
         El <strong>Closing Line Value</strong> compara la cuota a la que se apostó con la de cierre del
         mercado. Si tomaste 2,10 y cerró en 2,00, tienes CLV positivo: conseguiste mejor precio que el
@@ -74,7 +74,7 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
     </section>
 
     <section>
-      <h2 class="mb-2 text-lg font-semibold text-slate-100">De dónde salen los datos</h2>
+      <h2 class="mb-2 text-lg font-semibold text-ink">De dónde salen los datos</h2>
       <ul class="ml-4 list-disc space-y-1">
         <li>
           <strong>Resultados y cuotas de cierre</strong>: tennis-data.co.uk. {stats.firstSeason}–{stats.lastSeason},
@@ -82,11 +82,16 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
           reales de varias casas.
         </li>
         <li>
-          <strong>Partidos futuros y cuotas en vivo</strong>: The Odds API. Solo cubre Grand Slams,
-          Masters 1000 y algunos 500 — los torneos 250 no entran, y hay semanas sin ningún torneo cubierto.
+          <strong>Torneos en curso, calendario y marcadores en vivo</strong>: ESPN (gratis, set por
+          set). Cubre ATP y WTA de circuito principal, incluidos los 250; no cubre Challenger, que no
+          existe en ninguna fuente.
+        </li>
+        <li>
+          <strong>Cuotas de partidos futuros</strong>: The Odds API, solo para el Paper Trading y solo
+          en torneos grandes (Grand Slams, Masters 1000, algunos 500).
         </li>
       </ul>
-      <p class="mt-2 text-xs text-slate-500">
+      <p class="mt-2 text-xs text-ink-faint">
         Las probabilidades del modelo para partidos ya jugados se calcularon con el estado
         <em> anterior</em> a cada partido (sin mirar el resultado), así que la evaluación es un backtest
         honesto y no un ajuste sobre datos ya vistos.

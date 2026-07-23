@@ -41,15 +41,17 @@ export default function Buscador({ initial = [] }: { initial?: MatchRow[] }) {
           value={q}
           onChange={(e) => { setTouched(true); setQ(e.target.value); }}
           placeholder="Buscar jugador o torneo…"
-          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-court-500 focus:outline-none"
+          aria-label="Buscar jugador o torneo"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-court/60 focus:outline-none"
         />
-        <div className="flex rounded-lg border border-slate-700 p-0.5">
+        <div className="flex rounded-lg border border-line p-0.5">
           {(['all', 'ATP', 'WTA'] as const).map((t) => (
             <button
               key={t}
               onClick={() => { setTouched(true); setTour(t); }}
+              aria-pressed={tour === t}
               className={`rounded-md px-3 py-1 text-sm font-medium transition ${
-                tour === t ? 'bg-court-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                tour === t ? 'bg-court text-bg' : 'text-ink-muted hover:text-ink'
               }`}
             >
               {t === 'all' ? 'Todos' : t}
@@ -58,11 +60,9 @@ export default function Buscador({ initial = [] }: { initial?: MatchRow[] }) {
         </div>
       </div>
 
-      {loading && <p className="mb-2 text-xs text-slate-500">Buscando…</p>}
+      {loading && <p className="mb-2 text-2xs text-ink-faint">Buscando…</p>}
       {touched && !loading && matches.length === 0 && (q.trim() || tour !== 'all') && (
-        <p className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
-          Sin resultados para esta búsqueda.
-        </p>
+        <p className="card p-4 text-sm text-ink-muted">Sin resultados para esta búsqueda.</p>
       )}
       {(!touched || matches.length > 0) && <MatchList matches={matches} />}
     </div>

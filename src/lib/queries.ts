@@ -367,19 +367,95 @@ export interface OddsRow {
   capturedAt: string;
 }
 
+/** Estadísticas de un jugador, calculadas SOLO con lo que la fuente da de verdad. */
+export interface PlayerStats {
+  playerId: number;
+  name: string;
+  eloOverall: number | null;
+  eloSurface: number | null;
+  matches: number;
+  /** % de victorias en toda su historia registrada. */
+  winRate: number | null;
+  /** % de victorias en esta superficie. */
+  winRateSurface: number | null;
+  /** Resultados recientes: 'W'/'L' del más nuevo al más viejo. */
+  recentForm: ('W' | 'L')[];
+}
+
+export interface H2HMeeting {
+  matchId: number;
+  playedOn: string;
+  tournament: string;
+  surface: string | null;
+  round: string | null;
+  winnerName: string;
+  /** Marcador set por set, perspectiva del ganador. */
+  score: string;
+}
+
+/** Marcador set por set orientado a p1 / p2 (no ganador/perdedor). */
+export interface SetScore { p1: number; p2: number }
+
 export interface MatchDetail extends MatchRow {
   p1Id: number;
   p2Id: number;
   bestOf: number | null;
   court: string | null;
-  /** Explicación en palabras guardada por el modelo. */
   reasons: string[];
-  /** Aporte de cada feature al pronóstico, mayor magnitud primero. */
   contributions: FeatureContribution[];
   odds: OddsRow[];
-  /** Probabilidad implícita devigada del mercado (si hay cuota de dos vías). */
   marketProbP1: number | null;
   setsJson: string | null;
+  /** Marcador set por set orientado a p1/p2 (vacío si no ha terminado). */
+  sets: SetScore[];
+  gamesP1: number;
+  gamesP2: number;
+  statsP1: PlayerStats;
+  statsP2: PlayerStats;
+  /** Historial directo: victorias de p1, de p2 y los enfrentamientos. */
+  h2hP1Wins: number;
+  h2hP2Wins: number;
+  h2h: H2HMeeting[];
+}
+
+async function getPlayerStats(playerId: number, name: string, surface: string | null): Promise<PlayerStats> {
+  const c = db();
+  const elo = (await c.execute({
+    sql: `select surface, elo from player_ratings where player_id = ? and surface in ('all', ?)`,
+    args: [playerId, surface ?? 'all'],
+  })).rows;
+  const eloOverall = elo.find((r) => r.surface === 'all');
+  const eloSurface = surface ? elo.find((r) => r.surface === surface) : undefined;
+
+  // Récord global y por superficie: p1_won marca al ganador respecto a p1_id.
+  const rec = (await c.execute({
+    sql: `select
+            count(*) n,
+            sum(case when (m.p1_id = ? and m.p1_won = 1) or (m.p2_id = ? and m.p1_won = 0) then 1 else 0 end) w,
+            sum(case when m.surface = ? then 1 else 0 end) ns,
+            sum(case when m.surface = ? and ((m.p1_id = ? and m.p1_won = 1) or (m.p2_id = ? and m.p1_won = 0)) then 1 else 0 end) ws
+          from matches m
+          where m.status = 'completed' and m.p1_won is not null and (m.p1_id = ? or m.p2_id = ?)`,
+    args: [playerId, playerId, surface ?? '', surface ?? '', playerId, playerId, playerId, playerId],
+  })).rows[0];
+  const n = Number(rec.n), w = Number(rec.w), ns = Number(rec.ns), ws = Number(rec.ws);
+
+  const recent = (await c.execute({
+    sql: `select case when (m.p1_id = ? and m.p1_won = 1) or (m.p2_id = ? and m.p1_won = 0) then 'W' else 'L' end r
+          from matches m where m.status = 'completed' and m.p1_won is not null and (m.p1_id = ? or m.p2_id = ?)
+          order by m.played_on desc, m.id desc limit 8`,
+    args: [playerId, playerId, playerId, playerId],
+  })).rows.map((x) => x.r as 'W' | 'L');
+
+  return {
+    playerId, name,
+    eloOverall: eloOverall ? Number(eloOverall.elo) : null,
+    eloSurface: eloSurface ? Number(eloSurface.elo) : null,
+    matches: n,
+    winRate: n > 0 ? w / n : null,
+    winRateSurface: ns > 0 ? ws / ns : null,
+    recentForm: recent,
+  };
 }
 
 /** Nombre legible de cada feature para la explicación en palabras. */
@@ -495,17 +571,72 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
     reasons = explainFromContributions(contributions, base.p1Name, base.p2Name, base.probP1);
   }
 
+  const p1Id = Number(extra?.p1_id);
+  const p2Id = Number(extra?.p2_id);
+  const setsJson = (extra?.sets_json as string | null) ?? null;
+
+  // Marcador set por set, de perspectiva ganador (como se guarda) a p1/p2.
+  const sets: SetScore[] = [];
+  let gamesP1 = 0, gamesP2 = 0;
+  if (setsJson && base.p1Won !== null) {
+    try {
+      const raw = JSON.parse(setsJson) as [number, number][];
+      const p1IsWinner = base.p1Won === 1;
+      for (const [wg, lg] of raw) {
+        const s = { p1: p1IsWinner ? wg : lg, p2: p1IsWinner ? lg : wg };
+        sets.push(s); gamesP1 += s.p1; gamesP2 += s.p2;
+      }
+    } catch { /* marcador ilegible: se deja vacío */ }
+  }
+
+  // Head-to-head entre los dos jugadores.
+  // Enfrentamientos ANTERIORES: se excluye el propio partido, que si no se
+  // contaría a sí mismo como precedente.
+  const h2hRows = (await c.execute({
+    sql: `select m.id, m.played_on, tr.name tournament, m.surface, m.round, m.p1_won, m.p1_id,
+                 pw.name winner, m.sets_json
+          from matches m join tournaments tr on tr.id = m.tournament_id
+          left join players pw on pw.id = m.winner_id
+          where m.status = 'completed' and m.p1_won is not null and m.id <> ?
+            and ((m.p1_id = ? and m.p2_id = ?) or (m.p1_id = ? and m.p2_id = ?))
+          order by m.played_on desc limit 20`,
+    args: [id, Math.min(p1Id, p2Id), Math.max(p1Id, p2Id), Math.max(p1Id, p2Id), Math.min(p1Id, p2Id)],
+  })).rows;
+  let h2hP1Wins = 0, h2hP2Wins = 0;
+  const h2h: H2HMeeting[] = h2hRows.map((r) => {
+    const winnerIsP1 = (Number(r.p1_id) === p1Id) === (Number(r.p1_won) === 1);
+    if (winnerIsP1) h2hP1Wins++; else h2hP2Wins++;
+    // Si la fila no tiene winner_id (p.ej. viene de ESPN), se deduce del lado.
+    const winnerName = r.winner ? String(r.winner) : (winnerIsP1 ? base.p1Name : base.p2Name);
+    let score = '';
+    try {
+      score = (JSON.parse(String(r.sets_json ?? '[]')) as [number, number][]).map((s) => `${s[0]}-${s[1]}`).join(' ');
+    } catch { /* sin marcador */ }
+    return {
+      matchId: Number(r.id), playedOn: String(r.played_on), tournament: String(r.tournament),
+      surface: (r.surface as string | null) ?? null, round: (r.round as string | null) ?? null,
+      winnerName, score,
+    };
+  });
+
+  const [statsP1, statsP2] = await Promise.all([
+    getPlayerStats(p1Id, base.p1Name, base.surface),
+    getPlayerStats(p2Id, base.p2Name, base.surface),
+  ]);
+
   return {
     ...base,
-    p1Id: Number(extra?.p1_id),
-    p2Id: Number(extra?.p2_id),
+    p1Id, p2Id,
     bestOf: extra?.best_of === null || extra?.best_of === undefined ? null : Number(extra.best_of),
     court: (extra?.court as string | null) ?? null,
     reasons,
     contributions,
     odds: oddsRows,
     marketProbP1: dev ? dev.p1 : null,
-    setsJson: (extra?.sets_json as string | null) ?? null,
+    setsJson,
+    sets, gamesP1, gamesP2,
+    statsP1, statsP2,
+    h2hP1Wins, h2hP2Wins, h2h,
   };
 }
 

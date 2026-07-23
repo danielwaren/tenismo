@@ -1,11 +1,80 @@
+/* Fuentes autohospedadas (sin Inter, sin petición externa). */
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Sistema de color semántico (dark-first). Un solo lugar de verdad; los
+ * componentes usan estos tokens vía Tailwind, no hex sueltos.
+ *   ink   = texto            surface = fondos de tarjeta
+ *   line  = bordes           court   = acento (verde pista)
+ */
 :root {
   color-scheme: dark;
+  --bg: 222 30% 7%;
+  --surface: 220 24% 11%;
+  --surface-2: 220 22% 14%;
+  --line: 220 16% 22%;
+  --ink: 210 30% 96%;
+  --ink-muted: 218 14% 65%;
+  --ink-faint: 220 12% 48%;
+  --court: 145 63% 49%;
+  --court-ink: 145 55% 82%;
+  --live: 0 84% 62%;
 }
 
-body {
-  @apply bg-slate-950 text-slate-100 antialiased;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04';
+  }
+  h1, h2, h3, .font-display {
+    font-family: 'Space Grotesk Variable', 'Space Grotesk', ui-sans-serif, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  /* Cifras alineadas en columnas de datos. */
+  .tabular, .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+  a {
+    @apply transition-colors;
+  }
+  /* Foco visible y accesible en todo lo interactivo. */
+  a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid hsl(var(--court));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Tarjeta base: superficie, borde e hover coherentes en toda la app. */
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+  .card-hover {
+    @apply card transition duration-200 hover:border-court/40 hover:bg-surface-2;
+  }
+  /* Etiqueta pequeña de metadato. */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium;
+  }
 }

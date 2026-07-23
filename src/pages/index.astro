@@ -34,10 +34,10 @@ const cards = [
 <Base subtitle="Elo por superficie para ATP y WTA, contrastado contra cuotas reales." active="home">
   <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
     {cards.map((c) => (
-      <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-        <div class="text-xs uppercase tracking-wide text-slate-400">{c.label}</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-court-400">{c.value}</div>
-        <div class="mt-0.5 text-xs text-slate-500">{c.hint}</div>
+      <div class="card p-4">
+        <div class="text-xs uppercase tracking-wide text-ink-muted">{c.label}</div>
+        <div class="mt-1 font-mono text-2xl tabular-nums text-court">{c.value}</div>
+        <div class="mt-0.5 text-xs text-ink-faint">{c.hint}</div>
       </div>
     ))}
   </section>
@@ -47,26 +47,26 @@ const cards = [
 
   {liveTourns.length > 0 && (
     <section class="mb-8">
-      <h2 class="mb-3 text-lg font-semibold">Torneos en vivo</h2>
+      <h2 class="mb-3 font-display text-lg font-semibold">Torneos en vivo</h2>
       <TournamentCards tournaments={liveTourns} />
     </section>
   )}
 
   {upcomingTourns.length > 0 && (
     <section class="mb-8">
-      <h2 class="mb-3 text-lg font-semibold">Torneos próximos</h2>
+      <h2 class="mb-3 font-display text-lg font-semibold">Torneos próximos</h2>
       <TournamentCards tournaments={upcomingTourns} />
     </section>
   )}
 
   <section class="mb-8">
-    <h2 class="mb-3 text-lg font-semibold">Próximos partidos</h2>
+    <h2 class="mb-3 font-display text-lg font-semibold">Próximos partidos</h2>
     {upcoming.length > 0 ? (
       <MatchList client:load matches={upcoming} />
     ) : (
-      <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
+      <div class="card p-4 text-sm text-ink-muted">
         <p>No hay partidos programados ahora mismo.</p>
-        <p class="mt-2 text-xs leading-relaxed text-slate-500">
+        <p class="mt-2 text-xs leading-relaxed text-ink-faint">
           El calendario y los marcadores en vivo vienen de ESPN (ATP y WTA de circuito principal,
           incluidos los 250). Si no hay nada es porque no hay ningún torneo en curso. Challenger no
           tiene datos en ninguna fuente. Mientras tanto, explora los torneos recientes o usa el
@@ -77,7 +77,7 @@ const cards = [
   </section>
 
   <section class="mb-8">
-    <h2 class="mb-3 text-lg font-semibold">Torneos recientes</h2>
+    <h2 class="mb-3 font-display text-lg font-semibold">Torneos recientes</h2>
     <TournamentCards tournaments={recentTourns} />
   </section>
 
@@ -85,7 +85,7 @@ const cards = [
     <section class="mb-8 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm">
       <div class="flex items-center justify-between">
         <h2 class="font-semibold text-amber-200">Paper Trading — modo auditoría</h2>
-        <a href="/paper-trading" class="text-xs text-court-400 no-underline hover:underline">ver detalle →</a>
+        <a href="/paper-trading" class="text-xs text-court no-underline hover:underline">ver detalle →</a>
       </div>
       <p class="mt-1 text-xs leading-relaxed text-amber-100/70">
         Apuestas simuladas con dinero ficticio y cuotas reales. El backtest mostró que la ventaja
@@ -96,7 +96,7 @@ const cards = [
   )}
 
   <section>
-    <h2 class="mb-3 text-lg font-semibold">Buscar partidos</h2>
+    <h2 class="mb-3 font-display text-lg font-semibold">Buscar partidos</h2>
     <Buscador client:load />
   </section>
 </Base>

@@ -64,7 +64,7 @@ async function main() {
     aliasMaps[tour] = new Map(al.map((r) => [String(r.slug), Number(r.player_id)]));
   }
 
-  const report = { tournaments: 0, scheduled: 0, live: 0, linked: 0, created: 0, unresolved: 0 };
+  const report = { tournaments: 0, scheduled: 0, post: 0, live: 0, linked: 0, created: 0, unresolved: 0 };
   const liveMatchIds: number[] = [];
   const liveStmts: { sql: string; args: unknown[] }[] = [];
 
@@ -79,8 +79,9 @@ async function main() {
     }
 
     for (const t of torneos) {
-      // Solo interesan los torneos con algún partido próximo o en vivo.
-      const relevantes = t.matches.filter((m) => m.state === 'pre' || m.state === 'in');
+      // Todos los partidos de individuales del torneo: los terminados también,
+      // para que el cuadro salga COMPLETO (rondas ya jugadas incluidas).
+      const relevantes = t.matches;
       if (!relevantes.length) continue;
       report.tournaments++;
       const surface = surfaceHint(t.name);
@@ -122,38 +123,73 @@ async function main() {
         const p1IsHome = p1 === rh.playerId;
         const playedOn = m.date.slice(0, 10);
 
-        // Dedup: ¿ya existe un scheduled con esta pareja y fecha (±3 días)?
+        // Estado y resultado según ESPN. Los terminados se guardan como
+        // 'completed' pero SOLO para mostrar: el Elo se entrena únicamente con
+        // tennis-data (ver scripts/train-elo.ts), así que no lo contaminan.
+        const isPost = m.state === 'post';
+        const status = isPost ? 'completed' : 'scheduled';
+        let p1Won: number | null = null;
+        let setsJson: string | null = null;
+        let winnerId: number | null = null;
+        let loserId: number | null = null;
+        if (isPost && m.homeWon !== null) {
+          p1Won = (m.homeWon === p1IsHome) ? 1 : 0;
+          winnerId = p1Won === 1 ? p1 : p2;
+          loserId = p1Won === 1 ? p2 : p1;
+          const winScore = m.homeWon ? m.homeScore : m.awayScore;
+          const loseScore = m.homeWon ? m.awayScore : m.homeScore;
+          if (winScore && loseScore) {
+            setsJson = JSON.stringify(winScore.map((w, i) => [w, loseScore[i] ?? 0]));
+          }
+        }
+
+        // Dedup: ¿ya existe un partido con esta pareja y fecha (±3 días)?
+        // Cubre tanto el scheduled de odds-ingest como el completed de
+        // tennis-data (que es la fuente autorizada: si ya está, no se duplica).
         const existente = (await client.execute({
-          sql: `select id from matches where status = 'scheduled' and tour_id = ?
+          sql: `select id, source, status from matches where tour_id = ?
                   and p1_id = ? and p2_id = ? and abs(julianday(played_on) - julianday(?)) <= 3
-                limit 1`,
+                order by case when source = 'tennis-data' then 0 else 1 end limit 1`,
           args: [tourId, p1, p2, playedOn],
         })).rows[0];
 
         let matchId: number;
-        if (existente) {
+        if (existente && String(existente.source) === 'tennis-data') {
+          // tennis-data manda: no se toca ni se duplica.
           matchId = Number(existente.id);
+        } else if (existente) {
+          matchId = Number(existente.id);
+          // Actualiza el partido ESPN/odds existente con el resultado si terminó.
+          if (isPost) {
+            await client.execute({
+              sql: `update matches set status='completed', p1_won=?, sets_json=?,
+                    winner_id=?, loser_id=?, round=coalesce(round,?) where id=?`,
+              args: [p1Won, setsJson, winnerId, loserId, m.round, matchId],
+            });
+          }
         } else {
           await client.execute({
             sql: `insert into matches
                     (tour_id, tournament_id, season, played_on, round, best_of, surface, court,
-                     p1_id, p2_id, p1_won, status, source, source_key)
-                  values (?,?,?,?,?,?,?,?,?,?,?,'scheduled','espn',?)
+                     p1_id, p2_id, p1_won, sets_json, winner_id, loser_id, status, source, source_key)
+                  values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'espn',?)
                   on conflict (source_key) do update set
                     played_on = excluded.played_on, round = excluded.round,
-                    surface = excluded.surface, tournament_id = excluded.tournament_id`,
+                    surface = excluded.surface, tournament_id = excluded.tournament_id,
+                    status = excluded.status, p1_won = excluded.p1_won, sets_json = excluded.sets_json,
+                    winner_id = excluded.winner_id, loser_id = excluded.loser_id`,
             args: [
               tourId, tournamentId, t.season, playedOn, m.round, 3, surface, null,
-              p1, p2, null, `espn:${m.id}`,
+              p1, p2, p1Won, setsJson, winnerId, loserId, status, `espn:${m.id}`,
             ],
           });
           matchId = Number((await client.execute({
             sql: `select id from matches where source_key = ?`, args: [`espn:${m.id}`],
           })).rows[0].id);
         }
-        report.scheduled++;
+        if (isPost) report.post = (report.post ?? 0) + 1; else report.scheduled++;
 
-        // Marcador en vivo (o recién terminado que aún esté 'in').
+        // Marcador en vivo (solo para los que se están jugando ahora).
         if (m.state === 'in') {
           const fmt = (arr: number[] | null) => (arr && arr.length ? arr.join(' ') : null);
           const scoreP1 = p1IsHome ? fmt(m.homeScore) : fmt(m.awayScore);
@@ -175,7 +211,7 @@ async function main() {
 
   console.log(
     `Torneos en curso: ${report.tournaments} (enlazados ${report.linked}, nuevos ${report.created}).\n` +
-    `Partidos próximos/vivo: ${report.scheduled} · en vivo ${report.live} · sin resolver ${report.unresolved}.`,
+    `Próximos ${report.scheduled} · terminados ${report.post} · en vivo ${report.live} · sin resolver ${report.unresolved}.`,
   );
 
   if (dryRun) { console.log('--dry-run: no se ha escrito nada.'); return; }

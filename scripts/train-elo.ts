@@ -113,6 +113,7 @@ async function main() {
     from matches m
     join tournaments tr on tr.id = m.tournament_id
     where m.elo_applied = 0 and m.status = 'completed' and m.p1_won is not null
+      and m.source = 'tennis-data'
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);
