@@ -66,14 +66,24 @@ function linescore(c: any): number[] | null {
 }
 
 /** Parsea un scoreboard de ESPN a torneos con sus partidos de INDIVIDUALES. */
-export function parseScoreboard(json: any): EspnTournament[] {
+export function parseScoreboard(json: any, tour?: 'atp' | 'wta'): EspnTournament[] {
   const out: EspnTournament[] = [];
   for (const ev of json?.events ?? []) {
     const matches: EspnMatch[] = [];
     for (const g of ev.groupings ?? []) {
       // Solo individuales: los dobles tienen otro rating y otra dinámica.
-      const slug = g?.grouping?.slug ?? '';
+      const slug = String(g?.grouping?.slug ?? '');
       if (!/singles/i.test(slug)) continue;
+
+      // EL FEED DE ATP TRAE TAMBIÉN LOS PARTIDOS DE WTA, Y AL REVÉS. En un
+      // torneo combinado (Canadá, Indian Wells, los Grand Slam) las dos
+      // categorías vienen en el mismo evento, separadas solo por este slug:
+      // 'mens-singles' contra 'womens-singles'. Filtrar por "singles" a secas
+      // metía a las jugadoras en el circuito equivocado, donde se resolvían
+      // contra el índice de jugadores masculino: nombres sin resolver, partidos
+      // duplicados en la lista de "en vivo" y marcadores dados la vuelta.
+      if (tour === 'atp' && !/^mens-/.test(slug)) continue;
+      if (tour === 'wta' && !/^womens-/.test(slug)) continue;
       for (const c of g.competitions ?? []) {
         const comp = c.competitors ?? [];
         if (comp.length !== 2) continue;
@@ -111,7 +121,9 @@ export function parseScoreboard(json: any): EspnTournament[] {
 export async function fetchScoreboard(tour: 'atp' | 'wta'): Promise<EspnTournament[]> {
   const res = await fetch(`${ESPN_BASE}/${tour}/scoreboard`);
   if (!res.ok) throw new Error(`ESPN ${tour}: HTTP ${res.status}`);
-  return parseScoreboard(await res.json());
+  // El `tour` se pasa al analizador para quedarse solo con la categoría pedida:
+  // el feed de cada circuito incluye la del otro en los torneos combinados.
+  return parseScoreboard(await res.json(), tour);
 }
 
 /**

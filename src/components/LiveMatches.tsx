@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { LiveMatchRow } from '../lib/queries';
 import { SURFACE_ES } from '../lib/format';
-import { setsWon } from '../lib/score';
+import { setCells, currentLeader } from '../lib/score';
 
 /**
  * Tarjetas de partidos EN VIVO, con etiqueta "VIVO" y marcador en directo.
@@ -19,11 +19,15 @@ function pulse() {
 }
 
 function Card({ m }: { m: LiveMatchRow }) {
-  const [wP1, wP2] = setsWon(m.scoreP1, m.scoreP2);
-  // El marcador ▸ señala quién va por delante EN SETS, no quién lleva más
-  // juegos del set que se está jugando.
-  const p1Lead = wP1 > wP2;
-  const p2Lead = wP2 > wP1;
+  // El marcador se pinta SET A SET, en columnas alineadas entre los dos
+  // jugadores. Antes cada uno llevaba un número suelto ("2" arriba, "3" abajo)
+  // sin decir si eran sets o juegos y sin señalar a nadie como líder: el
+  // marcador se leía al revés con toda facilidad.
+  const cells = setCells(m.scoreP1, m.scoreP2);
+  const leader = currentLeader(m.scoreP1, m.scoreP2);
+  const p1Lead = leader === 1;
+  const p2Lead = leader === 2;
+  const enCurso = cells.some((c) => c.inPlay);
   return (
     <a
       href={`/match/${m.id}`}
@@ -36,15 +40,45 @@ function Card({ m }: { m: LiveMatchRow }) {
         </span>
       </div>
       <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className={`truncate text-sm ${p1Lead ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{p1Lead && '▸ '}{m.p1Name}</span>
-          <span className={`shrink-0 font-mono text-base tracking-widest tabular-nums ${p1Lead ? 'text-court' : 'text-ink-muted'}`}>{m.scoreP1 ?? '–'}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className={`truncate text-sm ${p2Lead ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{p2Lead && '▸ '}{m.p2Name}</span>
-          <span className={`shrink-0 font-mono text-base tracking-widest tabular-nums ${p2Lead ? 'text-court' : 'text-ink-muted'}`}>{m.scoreP2 ?? '–'}</span>
-        </div>
+        {([['p1', m.p1Name, p1Lead], ['p2', m.p2Name, p2Lead]] as const).map(([lado, nombre, lidera]) => (
+          <div key={lado} className="flex items-center justify-between gap-2">
+            <span className={`truncate text-sm ${lidera ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
+              {lidera ? '▸ ' : '  '}{nombre}
+            </span>
+            {cells.length ? (
+              <span className="flex shrink-0 gap-1.5">
+                {cells.map((c, i) => {
+                  const propio = lado === 'p1' ? c.a : c.b;
+                  const rival = lado === 'p1' ? c.b : c.a;
+                  return (
+                    <span
+                      key={i}
+                      // El set en juego se distingue del resto: es un marcador
+                      // provisional, no un set ganado.
+                      className={`w-6 rounded text-center font-mono text-base tabular-nums ${
+                        c.inPlay
+                          ? 'bg-live/15 text-live'
+                          : propio > rival
+                            ? 'font-semibold text-court'
+                            : 'text-ink-faint'
+                      }`}
+                    >
+                      {propio}
+                    </span>
+                  );
+                })}
+              </span>
+            ) : (
+              <span className="shrink-0 font-mono text-base text-ink-faint">–</span>
+            )}
+          </div>
+        ))}
       </div>
+      {enCurso && (
+        <p className="mt-1.5 text-right text-2xs text-ink-faint">
+          juegos por set · <span className="text-live">set en juego</span>
+        </p>
+      )}
       {m.probP1 !== null && (
         <div className="mt-2 border-t border-live/20 pt-1.5 text-2xs text-ink-faint">
           Pronóstico: {m.p1Name.split(' ')[0]} {Math.round(m.probP1 * 100)}% · {m.p2Name.split(' ')[0]} {Math.round((1 - m.probP1) * 100)}%

@@ -28,3 +28,49 @@ export function setsWon(a: string | null, b: string | null): [number, number] {
   }
   return [wa, wb];
 }
+
+/** Marcador por set, ya emparejado, tal y como se escribe el tenis. */
+export interface SetCell {
+  a: number;
+  b: number;
+  /** true si es el set que se está jugando (no cerrado). */
+  inPlay: boolean;
+}
+
+/**
+ * Convierte los dos marcadores de ESPN ("6 3" contra "4 5") en celdas por set.
+ *
+ * Pintar cada jugador con un número suelto —"2" arriba, "3" abajo— es lo que
+ * hacía ilegible la tarjeta de EN VIVO: sin saber si son sets o juegos, y sin
+ * nadie marcado como líder, el marcador se lee al revés con facilidad. Emparejar
+ * por set y señalar el que está en juego lo deja sin ambigüedad.
+ */
+export function setCells(a: string | null, b: string | null): SetCell[] {
+  if (!a || !b) return [];
+  const xa = a.trim().split(/\s+/).map(Number);
+  const xb = b.trim().split(/\s+/).map(Number);
+  const out: SetCell[] = [];
+  for (let i = 0; i < Math.min(xa.length, xb.length); i++) {
+    if (!Number.isFinite(xa[i]) || !Number.isFinite(xb[i])) continue;
+    out.push({ a: xa[i], b: xb[i], inPlay: !setClosed(xa[i], xb[i]) });
+  }
+  return out;
+}
+
+/**
+ * Quién va por delante: 1 = el primero, 2 = el segundo, 0 = igualados.
+ *
+ * Manda quien tiene más sets ganados. Solo si van iguales en sets se mira quién
+ * lleva más juegos en el set en curso. `setsWon` por sí solo devolvía 0-0 en el
+ * primer set y dejaba la tarjeta sin ningún indicio de quién domina, que es
+ * justo cuando más falta hace.
+ */
+export function currentLeader(a: string | null, b: string | null): 0 | 1 | 2 {
+  const [wa, wb] = setsWon(a, b);
+  if (wa !== wb) return wa > wb ? 1 : 2;
+
+  const cells = setCells(a, b);
+  const enCurso = cells.find((c) => c.inPlay);
+  if (!enCurso || enCurso.a === enCurso.b) return 0;
+  return enCurso.a > enCurso.b ? 1 : 2;
+}

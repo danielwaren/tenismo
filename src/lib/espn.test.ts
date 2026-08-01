@@ -107,3 +107,61 @@ describe('parseScoreboard', () => {
     expect(parseScoreboard(solo)[0].matches).toHaveLength(0);
   });
 });
+
+describe('parseScoreboard — circuito del partido', () => {
+  // Caso real: en Canadá 2026 el feed de ATP traía también los partidos de WTA.
+  // Sin filtrar, las jugadoras se resolvían contra el índice masculino y el
+  // marcador de "en vivo" salía invertido.
+  const combinado = {
+    events: [{
+      id: '1', date: '2026-08-01T15:00Z', name: 'National Bank Open',
+      groupings: [
+        {
+          grouping: { slug: 'mens-singles' },
+          competitions: [{
+            id: 'm1', date: '2026-08-01T15:00Z', status: { type: { state: 'in' } },
+            competitors: [
+              { homeAway: 'home', athlete: { fullName: 'Marco Trungelliti' }, linescores: [{ value: 2 }] },
+              { homeAway: 'away', athlete: { fullName: 'Nicolas Mejia' }, linescores: [{ value: 3 }] },
+            ],
+          }],
+        },
+        {
+          grouping: { slug: 'womens-singles' },
+          competitions: [{
+            id: 'w1', date: '2026-08-01T15:00Z', status: { type: { state: 'in' } },
+            competitors: [
+              { homeAway: 'home', athlete: { fullName: 'Victoria Jimenez Kasintseva' }, linescores: [{ value: 2 }] },
+              { homeAway: 'away', athlete: { fullName: 'Marina Bassols Ribera' }, linescores: [{ value: 0 }] },
+            ],
+          }],
+        },
+        {
+          grouping: { slug: 'mens-doubles' },
+          competitions: [{ id: 'd1', competitors: [{}, {}] }],
+        },
+      ],
+    }],
+  };
+
+  it('con tour=atp deja solo el cuadro masculino', () => {
+    const m = parseScoreboard(combinado, 'atp')[0].matches;
+    expect(m.map((x) => x.homeName)).toEqual(['Marco Trungelliti']);
+  });
+
+  it('con tour=wta deja solo el cuadro femenino', () => {
+    const m = parseScoreboard(combinado, 'wta')[0].matches;
+    expect(m.map((x) => x.homeName)).toEqual(['Victoria Jimenez Kasintseva']);
+  });
+
+  it('sin tour se comporta como antes: todos los individuales', () => {
+    expect(parseScoreboard(combinado)[0].matches).toHaveLength(2);
+  });
+
+  it('los dobles siguen fuera en cualquier caso', () => {
+    for (const t of [undefined, 'atp', 'wta'] as const) {
+      const m = parseScoreboard(combinado, t)[0].matches;
+      expect(m.every((x) => x.id !== 'd1')).toBe(true);
+    }
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { setClosed, setsWon } from './score';
+import { setClosed, setsWon, setCells, currentLeader } from './score';
 
 describe('setClosed', () => {
   it('cierra con 6 y dos de ventaja', () => {
@@ -41,5 +41,44 @@ describe('setsWon', () => {
     expect(setsWon('6', null)).toEqual([0, 0]);
     expect(setsWon('', '')).toEqual([0, 0]);
     expect(setsWon('x y', '6 4')).toEqual([0, 0]);
+  });
+});
+
+describe('setCells', () => {
+  it('empareja los juegos set a set', () => {
+    expect(setCells('6 3', '4 5')).toEqual([
+      { a: 6, b: 4, inPlay: false },
+      { a: 3, b: 5, inPlay: true },
+    ]);
+  });
+
+  it('marca en juego el set que no está cerrado', () => {
+    expect(setCells('2', '3')).toEqual([{ a: 2, b: 3, inPlay: true }]);
+    expect(setCells('7', '6')).toEqual([{ a: 7, b: 6, inPlay: false }]);
+  });
+
+  it('sin marcador devuelve lista vacía', () => {
+    expect(setCells(null, '3')).toEqual([]);
+    expect(setCells('', '')).toEqual([]);
+  });
+});
+
+describe('currentLeader', () => {
+  it('manda quien tiene más sets ganados', () => {
+    expect(currentLeader('6 2', '4 5')).toBe(1); // 1-0 en sets pese a ir 2-5
+    expect(currentLeader('4 5', '6 2')).toBe(2);
+  });
+
+  it('si van iguales en sets, decide el set en curso', () => {
+    // Este es el caso real que se leía al revés: primer set, 2-3.
+    expect(currentLeader('2', '3')).toBe(2);
+    expect(currentLeader('3', '2')).toBe(1);
+    expect(currentLeader('6 4 3', '4 6 1')).toBe(1);
+  });
+
+  it('empate cuando no hay diferencia', () => {
+    expect(currentLeader('3', '3')).toBe(0);
+    expect(currentLeader('6 3', '4 3')).toBe(1); // 1-0 en sets
+    expect(currentLeader(null, null)).toBe(0);
   });
 });
