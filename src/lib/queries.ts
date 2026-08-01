@@ -1,7 +1,7 @@
 import { db } from './db';
 import {
   brierScore, logLoss, brierSkillScore, reliabilityBins, devigTwoWay,
-  FEATURE_NAMES, estimateMatchAces,
+  FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES,
   type BinaryOutcome, type FeatureName, type ServeProfile, type MatchAceEstimate,
 } from '@tti/model';
 
@@ -236,15 +236,21 @@ export async function getAceEstimates(matchIds: number[]): Promise<Map<number, M
                1.0 * sum(serve_games) / count(*)
         from base group by best_of
       )
-      select m.id, m.surface is not null por_superficie,
+      select m.id, m.surface is not null tiene_superficie,
              ct.tasa tour_rate, ct.juegos exp_games,
-             pa.aces a_aces, pa.gms a_gms, pa.conc a_conc, pa.ret_gms a_ret,
-             pb.aces b_aces, pb.gms b_gms, pb.conc b_conc, pb.ret_gms b_ret
+             sa.aces a_aces, sa.gms a_gms, sa.conc a_conc, sa.ret_gms a_ret,
+             sb.aces b_aces, sb.gms b_gms, sb.conc b_conc, sb.ret_gms b_ret,
+             ga.aces ga_aces, ga.gms ga_gms, ga.conc ga_conc, ga.ret_gms ga_ret,
+             gb.aces gb_aces, gb.gms gb_gms, gb.conc gb_conc, gb.ret_gms gb_ret
       from matches m
       join circuito ct
         on ct.clave = coalesce(m.surface, 'ALL') and ct.best_of = coalesce(m.best_of, 3)
-      left join perfil pa on pa.player_id = m.p1_id and pa.clave = coalesce(m.surface, 'ALL')
-      left join perfil pb on pb.player_id = m.p2_id and pb.clave = coalesce(m.surface, 'ALL')
+      -- Perfil de la superficie del partido…
+      left join perfil sa on sa.player_id = m.p1_id and sa.clave = coalesce(m.surface, 'ALL')
+      left join perfil sb on sb.player_id = m.p2_id and sb.clave = coalesce(m.surface, 'ALL')
+      -- …y el de toda su carrera, como respaldo cuando el primero es corto.
+      left join perfil ga on ga.player_id = m.p1_id and ga.clave = 'ALL'
+      left join perfil gb on gb.player_id = m.p2_id and gb.clave = 'ALL'
       where m.id in (${ph})`,
     args: matchIds,
   });
@@ -260,15 +266,35 @@ export async function getAceEstimates(matchIds: number[]): Promise<Map<number, M
     };
   };
 
+  /**
+   * Perfil de la superficie si tiene muestra; si no, el de toda la carrera.
+   *
+   * Antes se usaba solo el de la superficie y la cobertura se hundía en cuanto
+   * un partido ganaba superficie: pasó de 9 tarjetas con proyección a 4, porque
+   * un jugador tiene muchos menos partidos en pista dura que en total. El nivel
+   * de la superficie lo sigue aportando la media del circuito, que es el punto
+   * al que encoge el cálculo, así que el respaldo no descuadra la escala.
+   */
+  const elegir = (
+    sup: ServeProfile,
+    global: ServeProfile,
+  ): { p: ServeProfile; bySurface: boolean } =>
+    sup.serveGames >= MIN_SERVE_GAMES ? { p: sup, bySurface: true } : { p: global, bySurface: false };
+
   for (const r of res.rows) {
-    const est = estimateMatchAces(
-      perfil(r.a_aces, r.a_gms, r.a_conc, r.a_ret),
-      perfil(r.b_aces, r.b_gms, r.b_conc, r.b_ret),
-      { tourAceRate: Number(r.tour_rate ?? 0), expectedServeGames: Number(r.exp_games ?? 0) },
-    );
+    const conSuperficie = Number(r.tiene_superficie) === 1;
+    const a = elegir(perfil(r.a_aces, r.a_gms, r.a_conc, r.a_ret), perfil(r.ga_aces, r.ga_gms, r.ga_conc, r.ga_ret));
+    const b = elegir(perfil(r.b_aces, r.b_gms, r.b_conc, r.b_ret), perfil(r.gb_aces, r.gb_gms, r.gb_conc, r.gb_ret));
+
+    const est = estimateMatchAces(a.p, b.p, {
+      tourAceRate: Number(r.tour_rate ?? 0),
+      expectedServeGames: Number(r.exp_games ?? 0),
+    });
     // Sin muestra en los dos lados sería la media del circuito con nombre y
     // apellidos. No se publica.
-    if (est?.reliable) out.set(Number(r.id), { ...est, bySurface: Number(r.por_superficie) === 1 });
+    if (est?.reliable) {
+      out.set(Number(r.id), { ...est, bySurface: conSuperficie && a.bySurface && b.bySurface });
+    }
   }
   return out;
 }

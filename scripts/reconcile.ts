@@ -20,10 +20,94 @@
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
+import { findDuplicateGroups, type TournamentAgg } from '../src/lib/tournaments';
 
 loadEnv();
 
 const hasFlag = (n: string) => process.argv.includes(`--${n}`);
+
+/**
+ * Detecta torneos que son el mismo evento visto por dos fuentes y devuelve las
+ * sentencias para unificarlos. El criterio (jugadores compartidos con fechas
+ * solapadas) vive en src/lib/tournaments.ts, con sus tests.
+ *
+ * Solo mira las dos últimas temporadas: las viejas ya están consolidadas y
+ * cargar todos los jugadores de 66.000 partidos para nada sería absurdo.
+ */
+async function fusionarTorneos(): Promise<{ sql: string; args: unknown[] }[]> {
+  const client = db();
+  const desdeTemporada = new Date().getUTCFullYear() - 1;
+
+  const filas = (await client.execute({
+    sql: `select tr.id, tr.tour_id, tr.season, tr.name, tr.surface, tr.series, tr.location,
+                 min(m.played_on) desde, max(m.played_on) hasta, count(m.id) n
+          from tournaments tr join matches m on m.tournament_id = tr.id
+          where tr.season >= ? group by tr.id`,
+    args: [desdeTemporada],
+  })).rows;
+  if (!filas.length) return [];
+
+  const jugadores = new Map<number, Set<number>>();
+  for (const r of (await client.execute({
+    sql: `select tournament_id, p1_id, p2_id from matches m
+          join tournaments tr on tr.id = m.tournament_id where tr.season >= ?`,
+    args: [desdeTemporada],
+  })).rows) {
+    const id = Number(r.tournament_id);
+    const s = jugadores.get(id) ?? new Set<number>();
+    s.add(Number(r.p1_id));
+    s.add(Number(r.p2_id));
+    jugadores.set(id, s);
+  }
+
+  const aggs: TournamentAgg[] = filas.map((r) => ({
+    id: Number(r.id),
+    tourId: Number(r.tour_id),
+    season: Number(r.season),
+    name: String(r.name),
+    surface: (r.surface as string | null) ?? null,
+    series: (r.series as string | null) ?? null,
+    location: (r.location as string | null) ?? null,
+    from: String(r.desde),
+    to: String(r.hasta),
+    matches: Number(r.n),
+    players: jugadores.get(Number(r.id)) ?? new Set(),
+  }));
+
+  const { groups: grupos, skipped } = findDuplicateGroups(aggs);
+  for (const s of skipped) {
+    console.log(`  ! torneos ${s.ids[0]}/${s.ids[1]} ("${s.names[0]}" / "${s.names[1]}"): ${s.reason} — sin fusionar`);
+  }
+  if (!grupos.length) {
+    console.log('  torneos duplicados: ninguno');
+    return [];
+  }
+
+  const stmts: { sql: string; args: unknown[] }[] = [];
+  for (const g of grupos) {
+    const nombres = g.duplicates.map((d) => `"${d.name}"`).join(', ');
+    console.log(`  torneos: ${nombres} → "${g.canonical.name}" (id ${g.canonical.id})`);
+
+    for (const d of g.duplicates) {
+      stmts.push({
+        sql: 'update matches set tournament_id = ? where tournament_id = ?',
+        args: [g.canonical.id, d.id],
+      });
+      // La fila que sobrevive se queda con los datos que solo tenía la otra: si
+      // la superficie o la sede venían del duplicado, se pierden al borrarlo.
+      stmts.push({
+        sql: `update tournaments set
+                surface  = coalesce(surface, ?),
+                series   = coalesce(series, ?),
+                location = coalesce(location, ?)
+              where id = ?`,
+        args: [d.surface, d.series, d.location, g.canonical.id],
+      });
+      stmts.push({ sql: 'delete from tournaments where id = ?', args: [d.id] });
+    }
+  }
+  return stmts;
+}
 
 async function main() {
   const client = db();
@@ -34,8 +118,12 @@ async function main() {
     from matches where status = 'scheduled'
   `)).rows;
 
-  if (!programados.length) { console.log('No hay partidos programados que reconciliar.'); return; }
-  console.log(`Partidos programados: ${programados.length}`);
+  // Sin `return` aunque no haya nada que reconciliar: más abajo se retiran los
+  // duplicados de ESPN y se fusionan los torneos, y esas dos cosas no dependen
+  // de que hoy haya partidos programados. (Es el mismo fallo que tuvo train-elo:
+  // salir antes de tiempo dejaba trabajo pendiente sin avisar.)
+  if (!programados.length) console.log('No hay partidos programados que reconciliar.');
+  else console.log(`Partidos programados: ${programados.length}`);
 
   const stmts: { sql: string; args: unknown[] }[] = [];
   let fusionados = 0;
@@ -90,6 +178,30 @@ async function main() {
     stmts.push({ sql: 'delete from matches where id = ?', args: [espnId] });
   }
   if (espnDup.length) console.log(`  duplicados ESPN→tennis-data retirados: ${espnDup.length}`);
+
+  // ── Torneos duplicados entre fuentes ───────────────────────────────────────
+  // Va aquí y no en cada ingester porque son TRES los que crean torneos
+  // (tennis-data, ESPN y The Odds API) y cada uno usa un nombre distinto para el
+  // mismo evento. Resolverlo en un solo sitio, después de la ingesta, cubre a
+  // los tres y también repara los duplicados que ya estaban en la base.
+  stmts.push(...(await fusionarTorneos()));
+
+  // La superficie está desnormalizada en `matches` porque el Elo y la
+  // proyección de aces filtran por ella. ESPN no la publica, así que sus
+  // partidos entran con null; si el torneo la sabe —normalmente porque acaba de
+  // absorber la fila de otra fuente que sí la traía— se propaga aquí.
+  const sinSuperficie = Number((await client.execute(`
+    select count(*) n from matches m join tournaments tr on tr.id = m.tournament_id
+    where m.surface is null and tr.surface is not null`)).rows[0].n);
+  if (sinSuperficie) {
+    console.log(`  superficie heredada del torneo: ${sinSuperficie} partidos`);
+    stmts.push({
+      sql: `update matches set surface = (select tr.surface from tournaments tr where tr.id = tournament_id)
+            where surface is null
+              and (select tr.surface from tournaments tr where tr.id = tournament_id) is not null`,
+      args: [],
+    });
+  }
 
   if (dryRun) { console.log('--dry-run: no se ha escrito nada.'); return; }
   if (stmts.length) await runBatch(client, stmts, 'reconciliación');
