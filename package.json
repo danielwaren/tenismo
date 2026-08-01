@@ -13,9 +13,12 @@
     "astro": "astro",
     "test": "npm --workspace @tti/model run test && vitest run",
     "typecheck": "astro check",
+    "actualizar": "npm run db:migrate && npm run db:ingest -- --from 2026 --force && tsx scripts/reconcile.ts && tsx scripts/espn-ingest.ts && npm run db:elo && tsx scripts/predict.ts",
+    "db:check": "tsx scripts/check-db.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:ingest": "tsx scripts/ingest-history.ts",
-    "db:elo": "tsx scripts/train-elo.ts"
+    "db:elo": "tsx scripts/train-elo.ts",
+    "db:ta": "tsx scripts/ta-ingest.ts"
   },
   "dependencies": {
     "@astrojs/react": "^4.2.0",

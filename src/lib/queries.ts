@@ -35,6 +35,13 @@ export interface DbStats {
   firstSeason: number | null;
   lastSeason: number | null;
   lastMatch: string | null;
+  /**
+   * Fecha del último RESULTADO conocido (no del último partido programado).
+   * Es el termómetro de la tubería: si se para, esta fecha se queda quieta
+   * mientras el resto de la web sigue pintando datos con normalidad. Se muestra
+   * en el panel para que un cron caído se vea, en vez de parecer un calendario.
+   */
+  lastResult: string | null;
 }
 
 export async function getStats(): Promise<DbStats> {
@@ -53,6 +60,10 @@ export async function getStats(): Promise<DbStats> {
     firstSeason: range?.a === null ? null : Number(range?.a),
     lastSeason: range?.b === null ? null : Number(range?.b),
     lastMatch: (range?.c as string | null) ?? null,
+    lastResult:
+      ((
+        await c.execute("select max(played_on) d from matches where status = 'completed'")
+      ).rows[0]?.d as string | null) ?? null,
   };
 }
 
@@ -135,12 +146,22 @@ const MATCH_SELECT = `
   left join model_outputs mo on mo.match_id = m.id and mo.model_version = ?
 `;
 
-/** Partidos programados (futuros), los más próximos primero. */
+/**
+ * Partidos programados (futuros), los más próximos primero.
+ *
+ * El filtro de fecha NO es decorativo. `status='scheduled'` solo vuelve a
+ * 'completed' cuando la reconciliación encuentra el resultado; si la ingesta se
+ * para —el cron murió 8 días seguidos por falta de secrets— esos partidos se
+ * quedan congelados y la web sigue anunciándolos como próximos indefinidamente.
+ * Un partido con fecha pasada y sin resultado es un fallo de la tubería, no un
+ * partido por jugar, y no debe presentarse como tal.
+ */
 export async function getUpcomingMatches(limit = 40): Promise<MatchRow[]> {
   const c = db();
   const version = await getModelVersion();
   const res = await c.execute({
-    sql: `${MATCH_SELECT} where m.status = 'scheduled' order by m.played_on asc, m.id asc limit ?`,
+    sql: `${MATCH_SELECT} where m.status = 'scheduled' and m.played_on >= date('now', '-1 day')
+          order by m.played_on asc, m.id asc limit ?`,
     args: [version, limit],
   });
   return res.rows.map(mapMatch);
@@ -244,11 +265,20 @@ export async function getLiveTournaments(): Promise<TournamentCard[]> {
 /** Torneos con partidos programados (próximos), por fecha de inicio. */
 export async function getUpcomingTournaments(limit = 12): Promise<TournamentCard[]> {
   const c = db();
+  // Mismo motivo que en getUpcomingMatches: sin el filtro de fecha, un torneo
+  // que terminó hace una semana sigue saliendo como "próximo" mientras le quede
+  // un partido sin reconciliar.
   const res = await c.execute({
     sql: `${TOURNAMENT_SELECT}
-          where tr.id in (select tournament_id from matches where status = 'scheduled')
+          where tr.id in (
+            select tournament_id from matches
+            where status = 'scheduled' and played_on >= date('now', '-1 day')
+          )
           group by tr.id
-          order by (select min(played_on) from matches where tournament_id = tr.id and status = 'scheduled') asc
+          order by (
+            select min(played_on) from matches
+            where tournament_id = tr.id and status = 'scheduled' and played_on >= date('now', '-1 day')
+          ) asc
           limit ?`,
     args: [limit],
   });

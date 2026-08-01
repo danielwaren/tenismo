@@ -1,0 +1,85 @@
+name: Estadisticas Tennis Abstract
+
+# Estadísticas de saque y resto (aces, dobles faltas, puntos al saque, primeros
+# dentro, break points) desde tennisabstract.com. Es la única fuente que las
+# publica: tennis-data no las trae y ESPN devuelve `statistics: []`.
+# Sin ellas no hay `p_a`/`p_b`, y sin eso no hay motor punto a punto ni mercado
+# de aces. Ver docs/09-diseno-pick1.md §1.5.
+#
+# SOLO ATP. La ficha ATP (`cgi-bin/player-classic.cgi`) trae los partidos
+# incrustados en el HTML y /cgi-bin/ no está en el robots.txt de la fuente. La
+# ficha WTA sí depende de /jsmatches/, que SÍ está prohibido: no se rastrea
+# hasta tener permiso explícito del autor.
+#
+# NO TOCA `matches` NI EL ELO. `tennis-data` sigue siendo la única fuente
+# autorizada de resultados; esto solo añade estadísticas a partidos que ya
+# existen. Lo que Tennis Abstract conoce y nosotros no (Challengers sobre todo)
+# se queda en la tabla `ta_matches`, esperando una decisión consciente.
+#
+# RITMO: Cloudflare corta con `error code: 1015` a las ~6 peticiones seguidas.
+# El script espera 6 s entre fichas y hace backoff, así que --max marca el
+# tiempo del job: 120 fichas ≈ 12 min. No subir el ritmo "para ir más rápido";
+# es exactamente lo que provoca el bloqueo.
+#
+# Secrets necesarios en el repositorio:
+#   TURSO_DATABASE_URL   libsql://<bd>-<org>.turso.io
+#   TURSO_AUTH_TOKEN     token de Turso (acceso total: no hay RLS)
+
+on:
+  schedule:
+    # 05:00 UTC, antes de la ingesta diaria (06:30): así los partidos que entran
+    # esa mañana ya encuentran creado el perfil de saque de sus jugadores.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      max:
+        description: 'Fichas de jugador a pedir en esta pasada (6 s cada una)'
+        type: string
+        default: '120'
+      relink:
+        description: 'Re-verificar TAMBIÉN los enlaces ya hechos (tras cambiar la regla de emparejamiento)'
+        type: boolean
+        default: false
+
+concurrency:
+  # Dos rastreos a la vez duplicarían las peticiones a la fuente y dispararían
+  # el límite de Cloudflare para los dos.
+  group: ta-turso
+  cancel-in-progress: false
+
+jobs:
+  estadisticas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Comprobar que hay base configurada
+        # Sin esto, `db()` cae en silencio al fichero local del runner: el job
+        # terminaría en verde habiendo escrito en una base que se borra al
+        # acabar. Un default silencioso que apunta a otra base no falla, miente.
+        run: |
+          if [ -z "$TURSO_DATABASE_URL" ]; then
+            echo "Falta el secret TURSO_DATABASE_URL." >&2
+            exit 1
+          fi
+
+      - name: Migraciones
+        run: npm run db:migrate
+
+      - name: Rastrear fichas y enlazar estadisticas
+        # El propio script escribe el resumen en $GITHUB_STEP_SUMMARY.
+        run: |
+          npx tsx scripts/ta-ingest.ts \
+            --max "${{ github.event.inputs.max || '120' }}" \
+            ${{ github.event.inputs.relink == 'true' && '--relink' || '' }}
