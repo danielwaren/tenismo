@@ -155,16 +155,72 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
             <span className="text-2xs uppercase tracking-widest text-ink-faint">enfrentamientos</span>
             <span className="font-mono text-2xl tabular-nums text-ink-muted">{m.h2hP2Wins}</span>
           </div>
+          {/* Promedios de saque y resto EN ESTOS DUELOS. Es lo que el
+              head-to-head de "3-2" no cuenta: cómo se ganaron esos partidos. */}
+          {m.h2hStats && (
+            <div className="mb-3 rounded-lg border border-line bg-surface-2/40 p-3">
+              <div className="mb-2 flex items-baseline justify-between text-2xs text-ink-faint">
+                <span className="uppercase tracking-wide">Cómo juegan entre ellos</span>
+                <span>{m.h2hStats.withStats} {m.h2hStats.withStats === 1 ? 'duelo' : 'duelos'} con datos</span>
+              </div>
+              <table className="w-full text-2xs">
+                <thead>
+                  <tr className="text-ink-faint">
+                    <th className="w-1/3 text-left font-normal" />
+                    <th className="text-right font-normal">{m.p1Name}</th>
+                    <th className="text-right font-normal">{m.p2Name}</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono tabular-nums">
+                  {([
+                    ['Aces por partido', 'acesPerMatch', (x: number) => x.toFixed(1)],
+                    ['1er saque dentro', 'firstInPct', (x: number) => `${x.toFixed(0)}%`],
+                    ['Gana con 1º', 'firstWonPct', (x: number) => `${x.toFixed(0)}%`],
+                    ['Gana con 2º', 'secondWonPct', (x: number) => `${x.toFixed(0)}%`],
+                    ['BP salvados', 'bpSavedPct', (x: number) => `${x.toFixed(0)}%`],
+                    ['BP convertidos', 'bpConvertedPct', (x: number) => `${x.toFixed(0)}%`],
+                  ] as const).map(([etiqueta, campo, fmt]) => {
+                    const a = m.h2hStats!.p1[campo];
+                    const b = m.h2hStats!.p2[campo];
+                    return (
+                      <tr key={campo} className="border-t border-line/40">
+                        <td className="py-1 font-sans text-ink-muted">{etiqueta}</td>
+                        <td className={`py-1 text-right ${a > b ? 'font-semibold text-court' : 'text-ink-muted'}`}>{fmt(a)}</td>
+                        <td className={`py-1 text-right ${b > a ? 'font-semibold text-court' : 'text-ink-muted'}`}>{fmt(b)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <ul className="divide-y divide-line/50 text-sm">
-            {m.h2h.slice(0, 6).map((meet) => (
-              <li key={meet.matchId} className="flex items-center justify-between gap-2 py-1.5">
-                <a href={`/match/${meet.matchId}`} className="min-w-0 truncate text-ink-muted no-underline hover:text-court-ink">
+            {m.h2h.slice(0, 8).map((meet) => {
+              const fila = (
+                <>
                   <span className="text-ink">{meet.winnerName}</span>
-                  <span className="text-2xs text-ink-faint"> · {meet.tournament} {new Date(meet.playedOn).getUTCFullYear()}{meet.surface ? ` · ${SURFACE_ES[meet.surface] ?? meet.surface}` : ''}</span>
-                </a>
-                <span className="shrink-0 font-mono text-2xs tabular-nums text-ink-muted">{meet.score}</span>
-              </li>
-            ))}
+                  <span className="text-2xs text-ink-faint">
+                    {' · '}{meet.tournament} {meet.playedOn.slice(0, 4)}
+                    {meet.surface ? ` · ${SURFACE_ES[meet.surface] ?? meet.surface}` : ''}
+                    {/* Los duelos que solo están en Tennis Abstract no tienen
+                        ficha propia: se marcan para que se note por qué no
+                        enlazan. */}
+                    {meet.matchId === null && ' · histórico'}
+                  </span>
+                </>
+              );
+              return (
+                <li key={meet.key} className="flex items-center justify-between gap-2 py-1.5">
+                  {meet.matchId !== null ? (
+                    <a href={`/match/${meet.matchId}`} className="min-w-0 truncate text-ink-muted no-underline hover:text-court-ink">{fila}</a>
+                  ) : (
+                    <span className="min-w-0 truncate text-ink-muted">{fila}</span>
+                  )}
+                  <span className="shrink-0 font-mono text-2xs tabular-nums text-ink-muted">{meet.score}</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

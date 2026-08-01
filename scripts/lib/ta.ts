@@ -410,35 +410,9 @@ export async function fetchPlayerPage(taName: string, opts: FetchOptions = {}): 
   throw new Error(`${taName}: agotados los reintentos — ${lastError}`);
 }
 
-// ── Comparación de marcadores (para enlazar con nuestros partidos) ───────────
-
-/**
- * Normaliza un marcador a lista de juegos [ganador, perdedor] por set.
- *
- * Hace falta porque la columna 0 de TA es la fecha de INICIO DEL TORNEO, no la
- * del partido: en un Grand Slam eso son hasta dos semanas de margen, demasiado
- * para emparejar solo por fecha. El marcador es el discriminante fuerte.
- * Los desempates entre paréntesis se descartan: 7-6(4) → [7,6].
- */
-export function parseScore(score: string | null): [number, number][] | null {
-  if (!score) return null;
-  const sets: [number, number][] = [];
-  for (const chunk of score.trim().split(/\s+/)) {
-    const m = chunk.match(/^(\d+)-(\d+)/);
-    if (!m) continue; // 'RET', 'W/O', 'Def.'
-    sets.push([Number(m[1]), Number(m[2])]);
-  }
-  // En una retirada antes de empezar el set, TA escribe el set a cero
-  // ("6-3 0-0 RET") y tennis-data simplemente no lo anota. Sin quitarlo, ningún
-  // partido con abandono llega a emparejarse.
-  while (sets.length > 1 && sets[sets.length - 1][0] === 0 && sets[sets.length - 1][1] === 0) sets.pop();
-  return sets.length ? sets : null;
-}
-
-/** ¿Describen el mismo partido dos marcadores, ambos con el ganador delante? */
-export function sameScore(a: string | null, b: string | null): boolean {
-  const sa = parseScore(a);
-  const sb = parseScore(b);
-  if (!sa || !sb || sa.length !== sb.length) return false;
-  return sa.every(([x, y], i) => sb[i][0] === x && sb[i][1] === y);
-}
+// ── Comparación de marcadores ───────────────────────────────────────────────
+// Viven en src/lib/score.ts porque la web también las necesita: el head-to-head
+// une los duelos de `matches` con los de `ta_matches`, y sin comparar el
+// marcador cuenta dos veces el mismo partido — el Miami 2017 salía además como
+// "Sony Ericsson Open", que era el patrocinador de entonces.
+export { parseScore, sameScore } from '../../src/lib/score';

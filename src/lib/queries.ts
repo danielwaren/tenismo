@@ -1,4 +1,5 @@
 import { db } from './db';
+import { sameScore, parseScore } from './score';
 import {
   brierScore, logLoss, brierSkillScore, reliabilityBins, devigTwoWay,
   FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES,
@@ -519,8 +520,23 @@ export interface PlayerStats {
   recentForm: ('W' | 'L')[];
 }
 
+/** Línea de saque y resto de un jugador en un enfrentamiento concreto. */
+export interface H2HLine {
+  aces: number;
+  doubleFaults: number;
+  servePoints: number;
+  firstIn: number;
+  firstWon: number;
+  secondWon: number;
+  serveGames: number;
+  bpSaved: number;
+  bpFaced: number;
+}
+
 export interface H2HMeeting {
-  matchId: number;
+  /** null si el partido solo existe en el histórico de Tennis Abstract. */
+  matchId: number | null;
+  key: string;
   playedOn: string;
   tournament: string;
   surface: string | null;
@@ -528,6 +544,27 @@ export interface H2HMeeting {
   winnerName: string;
   /** Marcador set por set, perspectiva del ganador. */
   score: string;
+  /** Estadísticas orientadas a p1/p2 del partido que se está viendo. */
+  statsP1: H2HLine | null;
+  statsP2: H2HLine | null;
+}
+
+/** Promedios de un jugador a lo largo de TODOS los duelos con este rival. */
+export interface H2HAverages {
+  acesPerMatch: number;
+  firstInPct: number;
+  firstWonPct: number;
+  secondWonPct: number;
+  bpSavedPct: number;
+  /** Break points convertidos = los que el rival NO salvó. */
+  bpConvertedPct: number;
+}
+
+export interface H2HStats {
+  /** Duelos con estadísticas (puede ser menos que el total de enfrentamientos). */
+  withStats: number;
+  p1: H2HAverages;
+  p2: H2HAverages;
 }
 
 /** Marcador set por set orientado a p1 / p2 (no ganador/perdedor). */
@@ -553,6 +590,203 @@ export interface MatchDetail extends MatchRow {
   h2hP1Wins: number;
   h2hP2Wins: number;
   h2h: H2HMeeting[];
+  /** Promedios de saque y resto en los duelos previos. null si no hay ninguno. */
+  h2hStats: H2HStats | null;
+}
+
+/**
+ * Historial directo entre dos jugadores, sumando las dos fuentes.
+ *
+ * `matches` solo llega a 2013 (antes tennis-data publica en .xls binario) y no
+ * tiene Challengers. Tennis Abstract sí: en `ta_matches` hay 13.000 partidos de
+ * circuito principal anteriores a 2013 y 22.000 de Challenger que aquí no
+ * existen. Sin ellos, el head-to-head de cualquier rivalidad que empezara antes
+ * sale truncado — y en los veteranos eso es la mitad de los duelos.
+ *
+ * Los que ya están enlazados NO se cuentan dos veces: se leen de `matches` y
+ * `ta_matches` solo aporta los que quedaron sin enlazar.
+ */
+async function getH2H(
+  p1Id: number,
+  p2Id: number,
+  excludeMatchId: number,
+  /** Fecha del partido que se está viendo: solo cuentan los duelos ANTERIORES. */
+  playedOn: string,
+  p1Name: string,
+  p2Name: string,
+): Promise<{ meetings: H2HMeeting[]; p1Wins: number; p2Wins: number; stats: H2HStats | null }> {
+  const c = db();
+  const lo = Math.min(p1Id, p2Id);
+  const hi = Math.max(p1Id, p2Id);
+
+  const linea = (r: Record<string, unknown>, p: string): H2HLine | null => {
+    const svpt = Number(r[`${p}svpt`] ?? 0);
+    if (!svpt) return null;
+    return {
+      aces: Number(r[`${p}aces`] ?? 0),
+      doubleFaults: Number(r[`${p}df`] ?? 0),
+      servePoints: svpt,
+      firstIn: Number(r[`${p}first_in`] ?? 0),
+      firstWon: Number(r[`${p}first_won`] ?? 0),
+      secondWon: Number(r[`${p}second_won`] ?? 0),
+      serveGames: Number(r[`${p}sv_gms`] ?? 0),
+      bpSaved: Number(r[`${p}bp_saved`] ?? 0),
+      bpFaced: Number(r[`${p}bp_faced`] ?? 0),
+    };
+  };
+
+  // ── Enfrentamientos que sí están en nuestra base ───────────────────────────
+  const propios = (await c.execute({
+    sql: `select m.id, m.played_on, tr.name tournament, m.surface, m.round, m.p1_won, m.p1_id,
+                 pw.name winner, m.sets_json,
+                 sa.aces a_aces, sa.double_faults a_df, sa.serve_points a_svpt, sa.first_in a_first_in,
+                 sa.first_won a_first_won, sa.second_won a_second_won, sa.serve_games a_sv_gms,
+                 sa.bp_saved a_bp_saved, sa.bp_faced a_bp_faced,
+                 sb.aces b_aces, sb.double_faults b_df, sb.serve_points b_svpt, sb.first_in b_first_in,
+                 sb.first_won b_first_won, sb.second_won b_second_won, sb.serve_games b_sv_gms,
+                 sb.bp_saved b_bp_saved, sb.bp_faced b_bp_faced
+          from matches m
+          join tournaments tr on tr.id = m.tournament_id
+          left join players pw on pw.id = m.winner_id
+          left join match_stats sa on sa.match_id = m.id and sa.player_id = ?
+          left join match_stats sb on sb.match_id = m.id and sb.player_id = ?
+          where m.status = 'completed' and m.p1_won is not null and m.id <> ?
+            and m.p1_id = ? and m.p2_id = ? and m.played_on < ?
+          order by m.played_on desc`,
+    args: [p1Id, p2Id, excludeMatchId, lo, hi, playedOn],
+  })).rows;
+
+  const meetings: H2HMeeting[] = propios.map((r) => {
+    const winnerIsP1 = (Number(r.p1_id) === p1Id) === (Number(r.p1_won) === 1);
+    let score = '';
+    try {
+      score = (JSON.parse(String(r.sets_json ?? '[]')) as [number, number][]).map((s) => `${s[0]}-${s[1]}`).join(' ');
+    } catch { /* sin marcador */ }
+    return {
+      matchId: Number(r.id),
+      key: `m${r.id}`,
+      playedOn: String(r.played_on),
+      tournament: String(r.tournament),
+      surface: (r.surface as string | null) ?? null,
+      round: (r.round as string | null) ?? null,
+      winnerName: r.winner ? String(r.winner) : winnerIsP1 ? p1Name : p2Name,
+      score,
+      statsP1: linea(r, 'a_'),
+      statsP2: linea(r, 'b_'),
+    };
+  });
+
+  // ── Los que solo conoce Tennis Abstract ────────────────────────────────────
+  const deTa = (await c.execute({
+    sql: `select ta_key, event_date, event, level, surface, round, score, winner_slug,
+                 a_player_id, a_slug,
+                 a_ace, a_df, a_svpt, a_first_in, a_first_won, a_second_won, a_sv_gms, a_bp_saved, a_bp_faced,
+                 b_ace, b_df, b_svpt, b_first_in, b_first_won, b_second_won, b_sv_gms, b_bp_saved, b_bp_faced
+          from ta_matches
+          where link_status <> 'linked' and conflict = 0
+            and ((a_player_id = ? and b_player_id = ?) or (a_player_id = ? and b_player_id = ?))
+            and event_date < ?
+            -- 'S' son exhibiciones: no cuentan en el head-to-head oficial.
+            and (level is null or level <> 'S')
+          order by event_date desc`,
+    args: [p1Id, p2Id, p2Id, p1Id, playedOn],
+  })).rows;
+
+  // Un duelo puede estar en las DOS fuentes sin haberse enlazado: el nombre del
+  // torneo cambia con el patrocinador ("Sony Ericsson Open" es el Miami de 2017)
+  // y la fecha de TA es la de inicio del torneo, no la del partido. Si no se
+  // descartan, el head-to-head los cuenta dos veces: Federer-Nadal salía 17-24
+  // cuando son 15-24.
+  // Se acepta el mismo AÑO, no solo una ventana de tres semanas, porque
+  // tennis-data trae erratas de fecha: su fila del Miami 2017 (Sony Ericsson
+  // Open, el patrocinador de entonces) está fechada el 2 de enero cuando la
+  // final fue el 2 de abril. Con la ventana estrecha el duplicado se colaba.
+  // Que dos jugadores se enfrenten dos veces el mismo año con un marcador
+  // idéntico set a set es raro; contar dos veces el mismo partido, seguro.
+  const yaEsta = (fecha: string, score: string): boolean =>
+    meetings.some((m) => {
+      if (!sameScore(m.score, score)) return false;
+      const dias = Math.abs(Date.parse(m.playedOn) - Date.parse(fecha)) / 86_400_000;
+      return dias <= 21 || m.playedOn.slice(0, 4) === fecha.slice(0, 4);
+    });
+
+  for (const r of deTa) {
+    // Los walkovers no son enfrentamientos: nadie golpeó una bola y la ATP no
+    // los cuenta en el head-to-head. Tennis Abstract los anota con "W/O" y sin
+    // marcador. Las retiradas SÍ cuentan, y esas llevan los sets jugados.
+    if (!parseScore(String(r.score ?? ''))) continue;
+    if (yaEsta(String(r.event_date), String(r.score ?? ''))) continue;
+
+    // El lado A/B de ta_matches va por slug, no por nuestro p1/p2: hay que
+    // orientarlo antes de enseñar nada.
+    const aEsP1 = Number(r.a_player_id) === p1Id;
+    const ganaA = String(r.winner_slug) === String(r.a_slug);
+    const winnerIsP1 = aEsP1 === ganaA;
+    const ren = (p: 'a' | 'b'): H2HLine | null =>
+      linea(
+        {
+          [`${p}_aces`]: r[`${p}_ace`], [`${p}_df`]: r[`${p}_df`], [`${p}_svpt`]: r[`${p}_svpt`],
+          [`${p}_first_in`]: r[`${p}_first_in`], [`${p}_first_won`]: r[`${p}_first_won`],
+          [`${p}_second_won`]: r[`${p}_second_won`], [`${p}_sv_gms`]: r[`${p}_sv_gms`],
+          [`${p}_bp_saved`]: r[`${p}_bp_saved`], [`${p}_bp_faced`]: r[`${p}_bp_faced`],
+        },
+        `${p}_`,
+      );
+    meetings.push({
+      matchId: null,
+      key: String(r.ta_key),
+      playedOn: String(r.event_date),
+      tournament: String(r.event),
+      surface: r.surface ? String(r.surface).toLowerCase() : null,
+      round: (r.round as string | null) ?? null,
+      winnerName: winnerIsP1 ? p1Name : p2Name,
+      score: String(r.score ?? ''),
+      statsP1: aEsP1 ? ren('a') : ren('b'),
+      statsP2: aEsP1 ? ren('b') : ren('a'),
+    });
+  }
+
+  meetings.sort((x, y) => (x.playedOn < y.playedOn ? 1 : -1));
+
+  let p1Wins = 0;
+  let p2Wins = 0;
+  for (const m of meetings) (m.winnerName === p1Name ? p1Wins++ : p2Wins++);
+
+  // ── Promedios de saque y resto en los duelos ───────────────────────────────
+  const conStats = meetings.filter((m) => m.statsP1 && m.statsP2);
+  if (!conStats.length) return { meetings, p1Wins, p2Wins, stats: null };
+
+  const sumar = (lado: 'statsP1' | 'statsP2') =>
+    conStats.reduce(
+      (acc, m) => {
+        const l = m[lado]!;
+        acc.aces += l.aces; acc.svpt += l.servePoints; acc.firstIn += l.firstIn;
+        acc.firstWon += l.firstWon; acc.secondWon += l.secondWon;
+        acc.bpSaved += l.bpSaved; acc.bpFaced += l.bpFaced;
+        return acc;
+      },
+      { aces: 0, svpt: 0, firstIn: 0, firstWon: 0, secondWon: 0, bpSaved: 0, bpFaced: 0 },
+    );
+
+  const a = sumar('statsP1');
+  const b = sumar('statsP2');
+  const pct = (x: number, y: number) => (y > 0 ? (100 * x) / y : 0);
+  const media = (propio: typeof a, rival: typeof a): H2HAverages => ({
+    acesPerMatch: propio.aces / conStats.length,
+    firstInPct: pct(propio.firstIn, propio.svpt),
+    firstWonPct: pct(propio.firstWon, propio.firstIn),
+    secondWonPct: pct(propio.secondWon, propio.svpt - propio.firstIn),
+    bpSavedPct: pct(propio.bpSaved, propio.bpFaced),
+    // Los break points que convierte uno son los que el OTRO no salvó.
+    bpConvertedPct: pct(rival.bpFaced - rival.bpSaved, rival.bpFaced),
+  });
+
+  return {
+    meetings,
+    p1Wins,
+    p2Wins,
+    stats: { withStats: conStats.length, p1: media(a, b), p2: media(b, a) },
+  };
 }
 
 async function getPlayerStats(playerId: number, name: string, surface: string | null): Promise<PlayerStats> {
@@ -726,35 +960,11 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
     } catch { /* marcador ilegible: se deja vacío */ }
   }
 
-  // Head-to-head entre los dos jugadores.
-  // Enfrentamientos ANTERIORES: se excluye el propio partido, que si no se
-  // contaría a sí mismo como precedente.
-  const h2hRows = (await c.execute({
-    sql: `select m.id, m.played_on, tr.name tournament, m.surface, m.round, m.p1_won, m.p1_id,
-                 pw.name winner, m.sets_json
-          from matches m join tournaments tr on tr.id = m.tournament_id
-          left join players pw on pw.id = m.winner_id
-          where m.status = 'completed' and m.p1_won is not null and m.id <> ?
-            and ((m.p1_id = ? and m.p2_id = ?) or (m.p1_id = ? and m.p2_id = ?))
-          order by m.played_on desc limit 20`,
-    args: [id, Math.min(p1Id, p2Id), Math.max(p1Id, p2Id), Math.max(p1Id, p2Id), Math.min(p1Id, p2Id)],
-  })).rows;
-  let h2hP1Wins = 0, h2hP2Wins = 0;
-  const h2h: H2HMeeting[] = h2hRows.map((r) => {
-    const winnerIsP1 = (Number(r.p1_id) === p1Id) === (Number(r.p1_won) === 1);
-    if (winnerIsP1) h2hP1Wins++; else h2hP2Wins++;
-    // Si la fila no tiene winner_id (p.ej. viene de ESPN), se deduce del lado.
-    const winnerName = r.winner ? String(r.winner) : (winnerIsP1 ? base.p1Name : base.p2Name);
-    let score = '';
-    try {
-      score = (JSON.parse(String(r.sets_json ?? '[]')) as [number, number][]).map((s) => `${s[0]}-${s[1]}`).join(' ');
-    } catch { /* sin marcador */ }
-    return {
-      matchId: Number(r.id), playedOn: String(r.played_on), tournament: String(r.tournament),
-      surface: (r.surface as string | null) ?? null, round: (r.round as string | null) ?? null,
-      winnerName, score,
-    };
-  });
+  // Head-to-head entre los dos jugadores. Se excluye el propio partido, que si
+  // no se contaría a sí mismo como precedente.
+  const {
+    meetings: h2h, p1Wins: h2hP1Wins, p2Wins: h2hP2Wins, stats: h2hStats,
+  } = await getH2H(p1Id, p2Id, id, base.playedOn, base.p1Name, base.p2Name);
 
   const [statsP1, statsP2] = await Promise.all([
     getPlayerStats(p1Id, base.p1Name, base.surface),
@@ -773,7 +983,7 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
     setsJson,
     sets, gamesP1, gamesP2,
     statsP1, statsP2,
-    h2hP1Wins, h2hP2Wins, h2h,
+    h2hP1Wins, h2hP2Wins, h2h, h2hStats,
   };
 }
 
