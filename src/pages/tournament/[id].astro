@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import MatchList from '../../components/MatchList.tsx';
-import { getTournamentDetail } from '../../lib/queries';
+import { getTournamentDetail, getAceEstimates } from '../../lib/queries';
 import { surfaceLabel, SURFACE_ES, tourChip } from '../../lib/format';
 
 export const prerender = false;
@@ -13,6 +13,11 @@ if (!detail) {
   return new Response(null, { status: 404, statusText: 'Torneo no encontrado' });
 }
 const { card, rounds } = detail;
+
+// Aces proyectados de todo el cuadro en una sola consulta, no una por ronda.
+const aces = Object.fromEntries(
+  await getAceEstimates(rounds.flatMap((r) => r.matches.map((m) => m.id))),
+);
 ---
 
 <Base title={`${card.name} · Tennis Trader Intelligence`}>
@@ -41,7 +46,7 @@ const { card, rounds } = detail;
           <span class="h-px flex-1 bg-line"></span>
           <span class="text-2xs tabular-nums text-ink-faint">{r.matches.length}</span>
         </div>
-        <MatchList client:visible matches={r.matches} />
+        <MatchList client:visible matches={r.matches} aces={aces} />
       </section>
     ))}
   </div>

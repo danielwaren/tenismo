@@ -75,6 +75,7 @@ async function loadLive(): Promise<LiveMatchRow[]> {
 
   const rows: LiveMatchRow[] = [];
   const vivos: number[] = [];
+  const vistos = new Set<number>();
 
   for (const ev of enVivo) {
     // 1) Por source_key, que es como lo guarda espn-ingest.
@@ -124,6 +125,13 @@ async function loadLive(): Promise<LiveMatchRow[]> {
     const scoreP1 = fmtScore(p1IsHome ? ev.homeScore : ev.awayScore);
     const scoreP2 = fmtScore(p1IsHome ? ev.awayScore : ev.homeScore);
     const matchId = Number(row.id);
+
+    // Dos eventos distintos de ESPN pueden resolver al MISMO partido nuestro
+    // (el mismo encuentro aparece en dos entradas del marcador, o la búsqueda
+    // por pareja cae en la misma fila). Sin esta guarda la tarjeta salía
+    // duplicada y React avisaba de claves repetidas.
+    if (vistos.has(matchId)) continue;
+    vistos.add(matchId);
 
     rows.push({
       id: matchId,

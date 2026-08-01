@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MatchRow } from '../lib/queries';
+import type { MatchRow, MatchAces } from '../lib/queries';
 import MatchList from './MatchList';
 
 /**
  * Buscador de partidos por jugador o torneo. Llama a /api/search (servidor),
  * con debounce para no disparar una petición por tecla.
  */
-export default function Buscador({ initial = [] }: { initial?: MatchRow[] }) {
+export default function Buscador({
+  initial = [],
+  initialAces = {},
+}: {
+  initial?: MatchRow[];
+  initialAces?: Record<number, MatchAces>;
+}) {
   const [q, setQ] = useState('');
   const [tour, setTour] = useState<'all' | 'ATP' | 'WTA'>('all');
   const [matches, setMatches] = useState<MatchRow[]>(initial);
+  const [aces, setAces] = useState<Record<number, MatchAces>>(initialAces);
   const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!touched) return;
-    if (!q.trim() && tour === 'all') { setMatches(initial); return; }
+    if (!q.trim() && tour === 'all') { setMatches(initial); setAces(initialAces); return; }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       setLoading(true);
@@ -26,6 +33,7 @@ export default function Buscador({ initial = [] }: { initial?: MatchRow[] }) {
         const res = await fetch(`/api/search?${params.toString()}`);
         const data = await res.json();
         setMatches(data.matches ?? []);
+        setAces(data.aces ?? {});
       } finally {
         setLoading(false);
       }
@@ -64,7 +72,7 @@ export default function Buscador({ initial = [] }: { initial?: MatchRow[] }) {
       {touched && !loading && matches.length === 0 && (q.trim() || tour !== 'all') && (
         <p className="card p-4 text-sm text-ink-muted">Sin resultados para esta búsqueda.</p>
       )}
-      {(!touched || matches.length > 0) && <MatchList matches={matches} />}
+      {(!touched || matches.length > 0) && <MatchList matches={matches} aces={aces} />}
     </div>
   );
 }
