@@ -28,9 +28,12 @@ const [stats, upcoming, paper, liveTourns, upcomingTourns, recentTourns] =
     getRecentTournaments(9),
   ]);
 
-// Aces proyectados de los partidos que se muestran. Solo vuelven los que tienen
-// muestra suficiente en los dos jugadores, así que el mapa suele ser parcial.
-const aces = Object.fromEntries(await getAceEstimates(upcoming.map((m) => m.id)));
+// Aces proyectados de los partidos que se muestran, en una sola consulta para
+// las dos secciones. Solo vuelven los que tienen muestra suficiente en los dos
+// jugadores, así que el mapa suele ser parcial.
+const aces = Object.fromEntries(
+  await getAceEstimates([...upcoming.map((m) => m.id), ...liveMatches.map((m) => m.id)]),
+);
 
 // Antigüedad de los datos. Si la ingesta se para, la web seguiría pintando las
 // mismas tarjetas indefinidamente sin decir nada: pasó 8 días seguidos cuando el
@@ -82,7 +85,7 @@ const cards = [
   </section>
 
   {/* En vivo: se hidrata y se auto-refresca; si no hay nada, no pinta nada. */}
-  <LiveMatches client:load initial={liveMatches} />
+  <LiveMatches client:load initial={liveMatches} initialAces={aces} />
 
   {liveTourns.length > 0 && (
     <section class="mb-8">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { LiveMatchRow } from '../lib/queries';
+import type { LiveMatchRow, MatchAces } from '../lib/queries';
 import { SURFACE_ES } from '../lib/format';
 import { setCells, currentLeader } from '../lib/score';
 
@@ -18,7 +18,7 @@ function pulse() {
   </span>;
 }
 
-function Card({ m }: { m: LiveMatchRow }) {
+function Card({ m, ace }: { m: LiveMatchRow; ace?: MatchAces }) {
   // El marcador se pinta SET A SET, en columnas alineadas entre los dos
   // jugadores. Antes cada uno llevaba un número suelto ("2" arriba, "3" abajo)
   // sin decir si eran sets o juegos y sin señalar a nadie como líder: el
@@ -79,17 +79,40 @@ function Card({ m }: { m: LiveMatchRow }) {
           juegos por set · <span className="text-live">set en juego</span>
         </p>
       )}
-      {m.probP1 !== null && (
-        <div className="mt-2 border-t border-live/20 pt-1.5 text-2xs text-ink-faint">
-          Pronóstico: {m.p1Name.split(' ')[0]} {Math.round(m.probP1 * 100)}% · {m.p2Name.split(' ')[0]} {Math.round((1 - m.probP1) * 100)}%
+      {(m.probP1 !== null || ace) && (
+        <div className="mt-2 space-y-0.5 border-t border-live/20 pt-1.5 text-2xs text-ink-faint">
+          {m.probP1 !== null && (
+            <div>
+              Pronóstico: {m.p1Name.split(' ')[0]} {Math.round(m.probP1 * 100)}% · {m.p2Name.split(' ')[0]} {Math.round((1 - m.probP1) * 100)}%
+            </div>
+          )}
+          {ace && (
+            // Proyección para el partido COMPLETO, no lo que lleva servido: no
+            // tenemos aces en directo, solo el histórico de Tennis Abstract.
+            <div>
+              Aces previstos: {m.p1Name.split(' ')[0]}{' '}
+              <span className="font-mono tabular-nums text-court">{ace.p1.expected.toFixed(1).replace('.', ',')}</span>
+              {' · '}{m.p2Name.split(' ')[0]}{' '}
+              <span className="font-mono tabular-nums text-court">{ace.p2.expected.toFixed(1).replace('.', ',')}</span>
+              {' · total '}
+              <span className="font-mono tabular-nums">{ace.total.toFixed(1).replace('.', ',')}</span>
+            </div>
+          )}
         </div>
       )}
     </a>
   );
 }
 
-export default function LiveMatches({ initial = [] }: { initial?: LiveMatchRow[] }) {
+export default function LiveMatches({
+  initial = [],
+  initialAces = {},
+}: {
+  initial?: LiveMatchRow[];
+  initialAces?: Record<number, MatchAces>;
+}) {
   const [matches, setMatches] = useState<LiveMatchRow[]>(initial);
+  const [aces, setAces] = useState<Record<number, MatchAces>>(initialAces);
   const [agoSec, setAgoSec] = useState(0);
 
   useEffect(() => {
@@ -100,6 +123,7 @@ export default function LiveMatches({ initial = [] }: { initial?: LiveMatchRow[]
         const data = await res.json();
         if (!alive) return;
         setMatches(data.matches ?? []);
+        setAces(data.aces ?? {});
         setAgoSec(0);
       } catch { /* red intermitente: se reintenta en el siguiente tick */ }
     };
@@ -129,7 +153,7 @@ export default function LiveMatches({ initial = [] }: { initial?: LiveMatchRow[]
         </span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {matches.map((m) => <Card key={m.id} m={m} />)}
+        {matches.map((m) => <Card key={m.id} m={m} ace={aces[m.id]} />)}
       </div>
     </section>
   );

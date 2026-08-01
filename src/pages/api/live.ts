@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getLiveNow } from '../../lib/live';
+import { getAceEstimates } from '../../lib/queries';
 
 export const prerender = false;
 
@@ -10,7 +11,10 @@ export const prerender = false;
  */
 export const GET: APIRoute = async () => {
   const matches = await getLiveNow();
-  return new Response(JSON.stringify({ matches, at: new Date().toISOString() }), {
+  // Los aces viajan con el marcador: la tarjeta de en vivo se refresca sola cada
+  // 20 s y, si no vinieran aquí, la proyección desaparecería en el primer tick.
+  const aces = Object.fromEntries(await getAceEstimates(matches.map((m) => m.id)));
+  return new Response(JSON.stringify({ matches, aces, at: new Date().toISOString() }), {
     headers: {
       'content-type': 'application/json',
       // Sin caché intermedia: el dato es efímero por definición.
