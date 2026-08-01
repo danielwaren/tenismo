@@ -1,4 +1,4 @@
-import type { MatchRow } from '../lib/queries';
+import type { MatchRow, MatchAces } from '../lib/queries';
 import { SURFACE_ES, SURFACE_DOT, fmtDate, tourChip } from '../lib/format';
 
 /**
@@ -19,7 +19,52 @@ function ProbBar({ probP1 }: { probP1: number }) {
   );
 }
 
-export default function MatchList({ matches }: { matches: MatchRow[] }) {
+/**
+ * Aces proyectados. Solo aparece si hay muestra en los dos jugadores: la
+ * consulta ya descarta el resto, así que aquí basta con que exista la entrada.
+ * Es un valor esperado (promedio ajustado por rival y superficie), NO una
+ * probabilidad de over/under — por eso se rotula "esperados" y con un decimal.
+ */
+function Aces({ est, p1, p2 }: { est: MatchAces; p1: string; p2: string }) {
+  const n = (x: number) => x.toFixed(1).replace('.', ',');
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <div className="flex items-baseline justify-between text-2xs text-ink-faint">
+        <span className="uppercase tracking-wide">
+          Aces esperados
+          {!est.bySurface && (
+            <span
+              className="ml-1 normal-case tracking-normal"
+              title="Calculado con el histórico global de cada jugador: la fuente del calendario no publica la superficie de este partido, y la tasa de aces cambia mucho entre arcilla (0,34 por juego al saque) y hierba (0,63)."
+            >
+              (sin superficie)
+            </span>
+          )}
+        </span>
+        <span className="font-mono tabular-nums text-ink-muted">total {n(est.total)}</span>
+      </div>
+      <div className="mt-1 flex gap-3 text-2xs text-ink-muted">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-mono tabular-nums text-court">{n(est.p1.expected)}</span>
+          {' '}{p1.split(' ')[0]}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-right">
+          {p2.split(' ')[0]}{' '}
+          <span className="font-mono tabular-nums text-court">{n(est.p2.expected)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export default function MatchList({
+  matches,
+  aces,
+}: {
+  matches: MatchRow[];
+  /** Proyección de aces por id de partido. Ausente = no se pinta. */
+  aces?: Record<number, MatchAces>;
+}) {
   if (!matches.length) {
     return (
       <p className="card p-4 text-sm text-ink-muted">No hay partidos que mostrar.</p>
@@ -70,6 +115,8 @@ export default function MatchList({ matches }: { matches: MatchRow[] }) {
               {m.probP1 !== null
                 ? <ProbBar probP1={m.probP1} />
                 : <p className="mt-2 text-2xs text-ink-faint">Sin pronóstico del modelo.</p>}
+
+              {aces?.[m.id] && <Aces est={aces[m.id]} p1={m.p1Name} p2={m.p2Name} />}
             </a>
           </li>
         );

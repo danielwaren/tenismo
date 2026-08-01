@@ -5,3 +5,4 @@ export * from './logreg';
 export * from './calibration';
 export * from './value';
 export * from './names';
+export * from './aces';

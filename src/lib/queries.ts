@@ -1,8 +1,17 @@
 import { db } from './db';
 import {
   brierScore, logLoss, brierSkillScore, reliabilityBins, devigTwoWay,
-  FEATURE_NAMES, type BinaryOutcome, type FeatureName,
+  FEATURE_NAMES, estimateMatchAces,
+  type BinaryOutcome, type FeatureName, type ServeProfile, type MatchAceEstimate,
 } from '@tti/model';
+
+export type { MatchAceEstimate };
+
+/** Proyección de aces de un partido, con la precisión de la que se ha calculado. */
+export interface MatchAces extends MatchAceEstimate {
+  /** true = perfiles de esa superficie; false = perfiles globales (menos preciso). */
+  bySurface: boolean;
+}
 
 /**
  * Consultas de lectura. SOLO SERVIDOR: se ejecutan en páginas Astro y API
@@ -165,6 +174,103 @@ export async function getUpcomingMatches(limit = 40): Promise<MatchRow[]> {
     args: [version, limit],
   });
   return res.rows.map(mapMatch);
+}
+
+/**
+ * Proyección de aces por partido, a partir de las estadísticas de Tennis
+ * Abstract (`match_stats`).
+ *
+ * Todo se agrega POR SUPERFICIE porque la diferencia es enorme: en la base hay
+ * 0,34 aces por juego al saque en arcilla frente a 0,63 en hierba. Mezclarlas
+ * daría un número que no describe ningún partido real.
+ *
+ * `conceded` mira el otro lado del mismo partido: los aces que le hicieron a un
+ * jugador son los del rival en esa fila. Así el ajuste por restador sale de los
+ * mismos datos, sin una segunda fuente.
+ *
+ * Devuelve solo los partidos para los que hay muestra suficiente en AMBOS
+ * jugadores; el resto no aparece en el mapa y la interfaz no pinta nada. La
+ * cobertura depende de cuántas fichas se hayan rastreado (`npm run db:ta`).
+ */
+export async function getAceEstimates(matchIds: number[]): Promise<Map<number, MatchAces>> {
+  const out = new Map<number, MatchAces>();
+  if (!matchIds.length) return out;
+
+  const c = db();
+  const ph = matchIds.map(() => '?').join(',');
+  // RESPALDO GLOBAL. Los partidos futuros llegan de ESPN, que no publica la
+  // superficie: los 63 programados de hoy la tienen a null, y el torneo
+  // tampoco la sabe. Sin respaldo, la proyección no saldría nunca justo donde
+  // interesa. Por eso cada agregado se calcula dos veces, por superficie y en
+  // conjunto ('ALL'), y se usa el que corresponda. La interfaz avisa cuando ha
+  // tirado del global, que es menos preciso: la diferencia entre arcilla y
+  // hierba casi duplica la tasa de aces.
+  const res = await c.execute({
+    sql: `
+      with base as (
+        select s.player_id, s.aces, s.serve_games,
+               o.aces conc, o.serve_games ret_gms,
+               mt.surface, coalesce(mt.best_of, 3) best_of
+        from match_stats s
+        join match_stats o on o.match_id = s.match_id and o.player_id <> s.player_id
+        join matches mt on mt.id = s.match_id
+      ),
+      perfil as (
+        select player_id, surface clave,
+               sum(aces) aces, sum(serve_games) gms,
+               sum(conc) conc, sum(ret_gms) ret_gms
+        from base where surface is not null group by player_id, surface
+        union all
+        select player_id, 'ALL',
+               sum(aces), sum(serve_games), sum(conc), sum(ret_gms)
+        from base group by player_id
+      ),
+      circuito as (
+        select surface clave, best_of,
+               1.0 * sum(aces) / nullif(sum(serve_games), 0) tasa,
+               1.0 * sum(serve_games) / count(*) juegos
+        from base where surface is not null group by surface, best_of
+        union all
+        select 'ALL', best_of,
+               1.0 * sum(aces) / nullif(sum(serve_games), 0),
+               1.0 * sum(serve_games) / count(*)
+        from base group by best_of
+      )
+      select m.id, m.surface is not null por_superficie,
+             ct.tasa tour_rate, ct.juegos exp_games,
+             pa.aces a_aces, pa.gms a_gms, pa.conc a_conc, pa.ret_gms a_ret,
+             pb.aces b_aces, pb.gms b_gms, pb.conc b_conc, pb.ret_gms b_ret
+      from matches m
+      join circuito ct
+        on ct.clave = coalesce(m.surface, 'ALL') and ct.best_of = coalesce(m.best_of, 3)
+      left join perfil pa on pa.player_id = m.p1_id and pa.clave = coalesce(m.surface, 'ALL')
+      left join perfil pb on pb.player_id = m.p2_id and pb.clave = coalesce(m.surface, 'ALL')
+      where m.id in (${ph})`,
+    args: matchIds,
+  });
+
+  const perfil = (aces: unknown, gms: unknown, conc: unknown, ret: unknown): ServeProfile => {
+    const sv = Number(gms ?? 0);
+    const rt = Number(ret ?? 0);
+    return {
+      serveGames: sv,
+      aceRate: sv > 0 ? Number(aces ?? 0) / sv : 0,
+      returnGames: rt,
+      concedeRate: rt > 0 ? Number(conc ?? 0) / rt : 0,
+    };
+  };
+
+  for (const r of res.rows) {
+    const est = estimateMatchAces(
+      perfil(r.a_aces, r.a_gms, r.a_conc, r.a_ret),
+      perfil(r.b_aces, r.b_gms, r.b_conc, r.b_ret),
+      { tourAceRate: Number(r.tour_rate ?? 0), expectedServeGames: Number(r.exp_games ?? 0) },
+    );
+    // Sin muestra en los dos lados sería la media del circuito con nombre y
+    // apellidos. No se publica.
+    if (est?.reliable) out.set(Number(r.id), { ...est, bySurface: Number(r.por_superficie) === 1 });
+  }
+  return out;
 }
 
 /**

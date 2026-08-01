@@ -7,6 +7,7 @@ import TournamentCards from '../components/TournamentCards.astro';
 import {
   getStats, getUpcomingMatches, getPaperSummary,
   getLiveTournaments, getUpcomingTournaments, getRecentTournaments,
+  getAceEstimates,
 } from '../lib/queries';
 import { getLiveNow } from '../lib/live';
 
@@ -26,6 +27,10 @@ const [stats, upcoming, paper, liveTourns, upcomingTourns, recentTourns] =
     getUpcomingTournaments(9),
     getRecentTournaments(9),
   ]);
+
+// Aces proyectados de los partidos que se muestran. Solo vuelven los que tienen
+// muestra suficiente en los dos jugadores, así que el mapa suele ser parcial.
+const aces = Object.fromEntries(await getAceEstimates(upcoming.map((m) => m.id)));
 
 // Antigüedad de los datos. Si la ingesta se para, la web seguiría pintando las
 // mismas tarjetas indefinidamente sin decir nada: pasó 8 días seguidos cuando el
@@ -96,7 +101,7 @@ const cards = [
   <section class="mb-8">
     <h2 class="mb-3 font-display text-lg font-semibold">Próximos partidos</h2>
     {upcoming.length > 0 ? (
-      <MatchList client:load matches={upcoming} />
+      <MatchList client:load matches={upcoming} aces={aces} />
     ) : (
       <div class="card p-4 text-sm text-ink-muted">
         <p>No hay partidos programados ahora mismo.</p>
