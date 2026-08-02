@@ -19,6 +19,7 @@ const FEATURE_ES: Record<string, string> = {
   loadDiff: 'Carga reciente (nº partidos)', intensityDiff: 'Intensidad reciente (desgaste)',
   restDiff: 'Descanso', formDiff: 'Forma reciente', expDiff: 'Experiencia',
   surfaceExpDiff: 'Experiencia en la superficie', bestOf5EloDiff: 'Ventaja al mejor de 5',
+  markovLogit: 'Motor punto a punto (saque/resto)',
 };
 
 function FormDots({ form }: { form: ('W' | 'L')[] }) {

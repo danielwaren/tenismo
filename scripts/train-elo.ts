@@ -14,6 +14,16 @@
  *     el resultado no mide fuerza relativa (es el estándar en la literatura de
  *     Elo de tenis), pero se conservan en la base.
  *   · Los partidos sin superficie identificada actualizan solo el rating global.
+ *
+ * MOTOR PUNTO A PUNTO (markovLogit, ver packages/model/src/markov.ts): igual
+ * patrón walk-forward que el Elo — se calcula con el perfil de saque previo al
+ * partido y SOLO DESPUÉS se actualiza ese perfil con las estadísticas del
+ * partido (si `match_stats` las tiene; la mayoría de partidos no las tiene,
+ * y el perfil vacío degrada solo a la media del circuito). El perfil se
+ * persiste en `player_serve_stats` / `tour_serve_stats` por la misma razón que
+ * el Elo se persiste en `player_ratings`: sin eso, cada ejecución incremental
+ * (el cron diario) reconstruiría el perfil desde cero y la feature saldría
+ * neutral casi siempre en producción aunque funcione perfecto en un backtest.
  */
 import { db, isLocalDb } from '../src/lib/db';
 import { loadEnv } from './lib/env';
@@ -22,7 +32,8 @@ import {
   DEFAULT_ELO, predictMatch, updateRatings, effectiveElo, expectedWinProb,
   shrunkH2H, rankLogDiff, pointsLogDiff, loadDiff, intensityDiff, restDiff, formDiff,
   expDiff, bestOf5EloDiff, loadInWindow, daysSinceLast, recentForm,
-  type Rating, type Surface, type RecentMatch,
+  estimateServeProb, markovLogit, shrinkRate, DEFAULT_SERVE_KAPPA,
+  type Rating, type Surface, type RecentMatch, type PointCount,
 } from '@tti/model';
 
 loadEnv();
@@ -39,7 +50,14 @@ interface PlayerState {
   bySurface: Map<string, Rating>;
   /** Ventana reciente para fatiga, descanso y forma. */
   history: RecentMatch[];
+  /** Puntos ganados/jugados al saque y al resto, acumulado walk-forward. */
+  serve: { serveWon: number; servePoints: number; returnWon: number; returnPoints: number };
 }
+
+/** Media del circuito al servicio, antes de tener NINGUNA muestra propia. */
+const DEFAULT_TOUR_SERVE_RATE = 0.62;
+/** Cuánto se resiste la media global a moverse con muestras pequeñas al principio. */
+const TOUR_AVG_KAPPA = 2000;
 
 /** Juegos totales disputados en un partido, a partir del marcador por set. */
 function totalGames(setsJson: string | null): number {
@@ -66,6 +84,8 @@ async function main() {
     await client.execute('delete from player_ratings');
     await client.execute('delete from model_outputs');
     await client.execute('delete from match_features');
+    await client.execute('delete from player_serve_stats');
+    await client.execute("update tour_serve_stats set serve_won = 0, serve_points = 0 where id = 1");
     await client.execute('update matches set elo_applied = 0');
   }
 
@@ -81,6 +101,7 @@ async function main() {
     all: { elo: DEFAULT_ELO.baseElo, matches: 0 },
     bySurface: new Map(),
     history: [],
+    serve: { serveWon: 0, servePoints: 0, returnWon: 0, returnPoints: 0 },
   });
   const existing = await client.execute('select player_id, surface, elo, matches from player_ratings');
   for (const r of existing.rows) {
@@ -91,6 +112,30 @@ async function main() {
     if (r.surface === 'all') s.all = rating;
     else s.bySurface.set(String(r.surface), rating);
   }
+
+  // Perfil de saque/resto acumulado, recargado igual que los ratings: sin esto
+  // cada ejecución incremental partiría de cero y la feature saldría neutral.
+  const existingServe = await client.execute(
+    'select player_id, serve_won, serve_points, return_won, return_points from player_serve_stats',
+  );
+  for (const r of existingServe.rows) {
+    const pid = Number(r.player_id);
+    if (!state.has(pid)) state.set(pid, blank());
+    state.get(pid)!.serve = {
+      serveWon: Number(r.serve_won), servePoints: Number(r.serve_points),
+      returnWon: Number(r.return_won), returnPoints: Number(r.return_points),
+    };
+  }
+  let globalServeWon = 0;
+  let globalServePoints = 0;
+  {
+    const g = (await client.execute('select serve_won, serve_points from tour_serve_stats where id = 1')).rows[0];
+    if (g) { globalServeWon = Number(g.serve_won); globalServePoints = Number(g.serve_points); }
+  }
+  const tourServeRate = (): number =>
+    globalServePoints > 0
+      ? shrinkRate(globalServeWon / globalServePoints, globalServePoints, DEFAULT_TOUR_SERVE_RATE, TOUR_AVG_KAPPA)
+      : DEFAULT_TOUR_SERVE_RATE;
 
   const get = (pid: number, surface: string | null): { all: Rating; surf: Rating } => {
     if (!state.has(pid)) state.set(pid, blank());
@@ -106,12 +151,19 @@ async function main() {
   };
 
   // ── Partidos pendientes, en orden cronológico estricto ─────────────────────
+  // match_stats de p1/p2, si Tennis Abstract llegó a ese partido (la mayoría
+  // no tiene: ver docs/09-diseno-pick1.md §1.5). serve_won se reconstruye como
+  // first_won + second_won porque match_stats no guarda el total directamente.
   const pending = await client.execute(`
     select m.id, m.p1_id, m.p2_id, m.p1_won, m.surface, m.played_on, m.round, m.best_of,
            m.winner_id, m.winner_rank, m.loser_rank, m.winner_points, m.loser_points,
-           m.sets_json, tr.series
+           m.sets_json, tr.series,
+           sa.serve_points a_sv_pts, sa.first_won a_fw, sa.second_won a_sw,
+           sb.serve_points b_sv_pts, sb.first_won b_fw, sb.second_won b_sw
     from matches m
     join tournaments tr on tr.id = m.tournament_id
+    left join match_stats sa on sa.match_id = m.id and sa.player_id = m.p1_id
+    left join match_stats sb on sb.match_id = m.id and sb.player_id = m.p2_id
     where m.elo_applied = 0 and m.status = 'completed' and m.p1_won is not null
       and m.source = 'tennis-data'
     order by m.played_on, m.id
@@ -177,6 +229,20 @@ async function main() {
     const load2 = loadInWindow(st2.history, playedOn);
     const eloDiffSurface = (effectiveElo(a.all, a.surf) - effectiveElo(b.all, b.surf)) / 400;
 
+    // Motor punto a punto, con el perfil de saque PREVIO al partido (st1.serve
+    // / st2.serve todavía no se han actualizado con este resultado).
+    const tourRate = tourServeRate();
+    const paLocal = estimateServeProb(
+      { won: st1.serve.serveWon, points: st1.serve.servePoints },
+      { won: st2.serve.returnWon, points: st2.serve.returnPoints },
+      { tourServeRate: tourRate },
+    );
+    const pbLocal = estimateServeProb(
+      { won: st2.serve.serveWon, points: st2.serve.servePoints },
+      { won: st1.serve.returnWon, points: st1.serve.returnPoints },
+      { tourServeRate: tourRate },
+    );
+
     const feats = {
       eloDiffSurface,
       eloDiffOverall: (a.all.elo - b.all.elo) / 400,
@@ -191,19 +257,20 @@ async function main() {
       expDiff: expDiff(a.all.matches, b.all.matches),
       surfaceExpDiff: expDiff(a.surf.matches, b.surf.matches),
       bestOf5EloDiff: bestOf5EloDiff(eloDiffSurface, Number(row.best_of) || null),
+      markovLogit: markovLogit(paLocal, pbLocal, Number(row.best_of) || null),
     };
     const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
     featureStmts.push({
       sql: `insert or replace into match_features
             (match_id, elo_diff_surface, elo_diff_overall, rank_log_diff, points_log_diff,
              h2h, h2h_surface, load_diff, intensity_diff, rest_diff, form_diff, exp_diff,
-             surface_exp_diff, best_of5_elo_diff)
-            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             surface_exp_diff, best_of5_elo_diff, markov_logit)
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
         matchId, r4(feats.eloDiffSurface), r4(feats.eloDiffOverall), r4(feats.rankLogDiff),
         r4(feats.pointsLogDiff), r4(feats.h2h), r4(feats.h2hSurface), r4(feats.loadDiff),
         r4(feats.intensityDiff), r4(feats.restDiff), r4(feats.formDiff), r4(feats.expDiff),
-        r4(feats.surfaceExpDiff), r4(feats.bestOf5EloDiff),
+        r4(feats.surfaceExpDiff), r4(feats.bestOf5EloDiff), r4(feats.markovLogit),
       ],
     });
 
@@ -255,6 +322,25 @@ async function main() {
     };
     pushHistory(s1, (p1Won ? 1 : 0) - expP1);
     pushHistory(s2, (p1Won ? 0 : 1) - (1 - expP1));
+
+    // Perfil de saque/resto: se actualiza SOLO si el partido trae estadísticas
+    // de Tennis Abstract para los dos jugadores (la mayoría no las trae). Si
+    // faltan, el perfil se queda igual y el próximo partido de este jugador
+    // seguirá viendo la misma muestra que este — correcto, no hay nada que
+    // añadir. `serveWon` se reconstruye como 1ºs + 2ºs ganados: match_stats no
+    // guarda el total directamente.
+    const aSvPts = Number(row.a_sv_pts) || 0;
+    const bSvPts = Number(row.b_sv_pts) || 0;
+    if (aSvPts > 0 && bSvPts > 0) {
+      const aWon = (Number(row.a_fw) || 0) + (Number(row.a_sw) || 0);
+      const bWon = (Number(row.b_fw) || 0) + (Number(row.b_sw) || 0);
+      s1.serve.serveWon += aWon; s1.serve.servePoints += aSvPts;
+      s1.serve.returnWon += bSvPts - bWon; s1.serve.returnPoints += bSvPts;
+      s2.serve.serveWon += bWon; s2.serve.servePoints += bSvPts;
+      s2.serve.returnWon += aSvPts - aWon; s2.serve.returnPoints += aSvPts;
+      globalServeWon += aWon + bWon;
+      globalServePoints += aSvPts + bSvPts;
+    }
 
     // Head-to-head acumulado para los próximos enfrentamientos del par.
     for (const [map, key] of [
@@ -319,12 +405,26 @@ async function main() {
     const eloDiffSurface = (effectiveElo(a.all, a.surf) - effectiveElo(b.all, b.surf)) / 400;
     const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
 
+    // Perfil de saque ya al día (venimos de recorrer todo el histórico): sin
+    // join a match_stats, a diferencia del bucle de arriba.
+    const tourRateSched = tourServeRate();
+    const paSched = estimateServeProb(
+      { won: st1.serve.serveWon, points: st1.serve.servePoints },
+      { won: st2.serve.returnWon, points: st2.serve.returnPoints },
+      { tourServeRate: tourRateSched },
+    );
+    const pbSched = estimateServeProb(
+      { won: st2.serve.serveWon, points: st2.serve.servePoints },
+      { won: st1.serve.returnWon, points: st1.serve.returnPoints },
+      { tourServeRate: tourRateSched },
+    );
+
     featureStmts.push({
       sql: `insert or replace into match_features
             (match_id, elo_diff_surface, elo_diff_overall, rank_log_diff, points_log_diff,
              h2h, h2h_surface, load_diff, intensity_diff, rest_diff, form_diff, exp_diff,
-             surface_exp_diff, best_of5_elo_diff)
-            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             surface_exp_diff, best_of5_elo_diff, markov_logit)
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [
         matchId, r4(eloDiffSurface), r4((a.all.elo - b.all.elo) / 400),
         r4(rankLogDiff(r1.rank, r2.rank)), r4(pointsLogDiff(r1.points, r2.points)),
@@ -335,6 +435,7 @@ async function main() {
         r4(formDiff(recentForm(st1.history), recentForm(st2.history))),
         r4(expDiff(a.all.matches, b.all.matches)), r4(expDiff(a.surf.matches, b.surf.matches)),
         r4(bestOf5EloDiff(eloDiffSurface, Number(row.best_of) || null)),
+        r4(markovLogit(paSched, pbSched, Number(row.best_of) || null)),
       ],
     });
 
@@ -377,6 +478,28 @@ async function main() {
     for (const [surface, r] of s.bySurface) push(surface, r);
   }
   await runBatch(ratingStmts, 'ratings');
+
+  // Perfil de saque/resto, mismo patrón que los ratings: sin esto, la próxima
+  // ejecución incremental (el cron diario) partiría de cero.
+  const serveStmts: { sql: string; args: unknown[] }[] = [];
+  for (const pid of touched) {
+    const s = state.get(pid)!.serve;
+    serveStmts.push({
+      sql: `insert into player_serve_stats
+              (player_id, serve_won, serve_points, return_won, return_points, updated_at)
+            values (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            on conflict (player_id) do update set
+              serve_won = excluded.serve_won, serve_points = excluded.serve_points,
+              return_won = excluded.return_won, return_points = excluded.return_points,
+              updated_at = excluded.updated_at`,
+      args: [pid, s.serveWon, s.servePoints, s.returnWon, s.returnPoints],
+    });
+  }
+  await runBatch(serveStmts, 'perfil de saque');
+  await client.execute({
+    sql: 'update tour_serve_stats set serve_won = ?, serve_points = ? where id = 1',
+    args: [globalServeWon, globalServePoints],
+  });
 
   // Un UPDATE por id serían 64.000 sentencias; contra Turso eso es un minuto y
   // medio de ida y vuelta por red para algo que cabe en 130 sentencias.

@@ -1,11 +1,11 @@
 ---
 import Base from '../layouts/Base.astro';
-import { getPaperSummary, getPaperTrades } from '../lib/queries';
+import { getPaperSummary, getPaperTrades, getPaperMarketBreakdown } from '../lib/queries';
 import { fmtDate, signedPct } from '../lib/format';
 
 export const prerender = false;
 
-const [summary, trades] = await Promise.all([getPaperSummary(), getPaperTrades(50)]);
+const [summary, trades, byMarket] = await Promise.all([getPaperSummary(), getPaperTrades(50), getPaperMarketBreakdown()]);
 const f2 = (x: number) => x.toFixed(2);
 ---
 
@@ -17,6 +17,31 @@ const f2 = (x: number) => x.toFixed(2);
     cuota tomada resultó mejor que la de cierre), que es la única señal capaz de detectar ventaja
     real antes de que el beneficio se distinga de la suerte.
   </div>
+
+  <div class="mb-6 rounded-lg border border-line bg-surface-2/40 p-4 text-xs leading-relaxed text-ink-muted">
+    Tres mercados: <strong class="text-ink">Ganador</strong>, <strong class="text-ink">Total de juegos</strong>
+    y <strong class="text-ink">Hándicap de juegos</strong> — son los únicos con cuota real disponible
+    (verificado contra The Odds API). Set y Aces no tienen mercado equivalente en ninguna casa que
+    cubramos, así que se quedan como proyección informativa en la ficha del partido, sin apuesta
+    simulada: la regla del proyecto es que la cuota siempre viene de una casa real, nunca de la
+    probabilidad del propio modelo.
+  </div>
+
+  {byMarket.length > 1 && (
+    <section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {byMarket.map((m) => (
+        <div class="card p-4">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">{m.market}</div>
+          <div class={`mt-1 font-mono text-xl tabular-nums ${m.profit < 0 ? 'text-live' : 'text-court'}`}>
+            {m.profit >= 0 ? '+' : ''}{m.profit.toFixed(2)}
+          </div>
+          <div class="mt-0.5 text-xs text-ink-faint">
+            {m.n} apuestas · {m.won}G/{m.lost}P{m.voidCount ? `/${m.voidCount} push` : ''} · {m.open} abiertas
+          </div>
+        </div>
+      ))}
+    </section>
+  )}
 
   {summary && summary.total > 0 ? (
     <>
@@ -52,6 +77,7 @@ const f2 = (x: number) => x.toFixed(2);
             <thead class="bg-surface-2/50 text-left text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th class="px-3 py-2 font-medium">Partido</th>
+                <th class="px-3 py-2 font-medium">Mercado</th>
                 <th class="px-3 py-2 font-medium">Apuesta</th>
                 <th class="px-3 py-2 text-right font-medium">Cuota</th>
                 <th class="px-3 py-2 text-right font-medium">Ventaja</th>
@@ -68,6 +94,7 @@ const f2 = (x: number) => x.toFixed(2);
                       {t.p1Name} vs {t.p2Name}
                     </a>
                   </td>
+                  <td class="px-3 py-2 text-2xs text-ink-faint">{t.market}</td>
                   <td class="px-3 py-2 text-ink">{t.selectionName}</td>
                   <td class="px-3 py-2 text-right font-mono tabular-nums">{t.oddsTaken.toFixed(2)}</td>
                   <td class="px-3 py-2 text-right font-mono tabular-nums text-ink-muted">{signedPct(t.edge)}</td>
@@ -77,7 +104,8 @@ const f2 = (x: number) => x.toFixed(2);
                       t.status === 'won' ? 'bg-court/15 text-court-ink'
                       : t.status === 'lost' ? 'bg-live/15 text-live'
                       : 'bg-surface-2 text-ink-muted'}`}>
-                      {t.status === 'won' ? 'Ganada' : t.status === 'lost' ? 'Perdida' : t.status === 'open' ? 'Abierta' : t.status}
+                      {t.status === 'won' ? 'Ganada' : t.status === 'lost' ? 'Perdida'
+                        : t.status === 'void' ? 'Push' : t.status === 'open' ? 'Abierta' : t.status}
                     </span>
                   </td>
                   <td class={`px-3 py-2 text-right font-mono tabular-nums ${t.clv !== null && t.clv < 0 ? 'text-live' : t.clv !== null ? 'text-court' : 'text-ink-faint'}`}>

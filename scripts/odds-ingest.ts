@@ -18,7 +18,10 @@
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
-import { fetchSports, fetchOdds, consensusFromEvent, tourFromSportKey, TOURNAMENT_INFO, tournamentNameFromKey } from './lib/odds-api';
+import {
+  fetchSports, fetchOdds, consensusFromEvent, totalsFromEvent, spreadsFromEvent,
+  tourFromSportKey, TOURNAMENT_INFO, tournamentNameFromKey, type ConsensusLine,
+} from './lib/odds-api';
 import { buildIndex, resolvePlayer } from '../src/lib/players';
 
 loadEnv();
@@ -74,9 +77,15 @@ async function main() {
   const matchStmts: { sql: string; args: unknown[] }[] = [];
   const unmatchedStmts: { sql: string; args: unknown[] }[] = [];
   const pendientes: { sourceKey: string; sel: 'home' | 'away'; odds: any }[] = [];
+  // Total de juegos y hándicap: se guardan aparte porque llevan `line` y, en
+  // el caso del hándicap, el signo depende de p1EsHome (se orienta al vuelo).
+  const pendientesTotal: { sourceKey: string; lado: 'over' | 'under'; odds: any; line: number }[] = [];
+  const pendientesHcp: { sourceKey: string; sel: 'p1' | 'p2'; odds: any; line: number }[] = [];
   let eventos = 0;
   let resueltos = 0;
   let sinCuota = 0;
+  let sinTotales = 0;
+  let sinHandicap = 0;
   let gastados = 0;
 
   for (const sport of activos) {
@@ -148,11 +157,36 @@ async function main() {
       for (const sel of ['p1', 'p2'] as const) {
         pendientes.push({ sourceKey, sel, odds: lado(sel) });
       }
+
+      // Total de juegos: Over/Under no dependen de p1/p2, se guardan tal cual.
+      const totales = totalsFromEvent(ev);
+      if (totales) {
+        pendientesTotal.push({ sourceKey, lado: 'over', odds: totales.a, line: totales.line });
+        pendientesTotal.push({ sourceKey, lado: 'under', odds: totales.b, line: totales.line });
+      } else {
+        sinTotales++;
+      }
+
+      // Hándicap: spreadsFromEvent orienta la línea al lado HOME de la API;
+      // aquí se reorienta a p1 igual que el resto de la ingesta (p1 = id
+      // menor, no depende de qué lado publicó la API como local).
+      const handicap = spreadsFromEvent(ev);
+      if (handicap) {
+        const lineaP1 = p1EsHome ? handicap.line : -handicap.line;
+        pendientesHcp.push({ sourceKey, sel: 'p1', odds: p1EsHome ? handicap.a : handicap.b, line: lineaP1 });
+        pendientesHcp.push({ sourceKey, sel: 'p2', odds: p1EsHome ? handicap.b : handicap.a, line: -lineaP1 });
+      } else {
+        sinHandicap++;
+      }
+
       resueltos++;
     }
   }
 
-  console.log(`\nEventos: ${eventos} · resueltos ${resueltos} · sin cuota ${sinCuota} · sin resolver ${unmatchedStmts.length}`);
+  console.log(
+    `\nEventos: ${eventos} · resueltos ${resueltos} · sin cuota ${sinCuota} · ` +
+      `sin resolver ${unmatchedStmts.length} · sin totales ${sinTotales} · sin hándicap ${sinHandicap}`,
+  );
   console.log(`Créditos gastados en esta corrida: ${gastados}`);
 
   if (dryRun) {
@@ -189,6 +223,34 @@ async function main() {
       });
     }
   }
+
+  const pushLinea = (
+    matchId: number, market: string, selection: string, line: number, bookmaker: string, valor: number,
+  ) => {
+    if (!(valor > 1)) return;
+    oddsStmts.push({
+      sql: `insert or ignore into odds
+            (match_id, source, bookmaker, market, selection, odds, implied_prob, is_closing, captured_at, line)
+            values (?, 'the-odds-api', ?, ?, ?, ?, ?, 0, ?, ?)`,
+      args: [
+        matchId, bookmaker, market, selection, Math.round(valor * 100) / 100,
+        Math.round((1 / valor) * 10000) / 10000, capturedAt, line,
+      ],
+    });
+  };
+  for (const p of pendientesTotal) {
+    const matchId = idPorClave.get(p.sourceKey);
+    if (!matchId) continue;
+    pushLinea(matchId, 'total_games', p.lado, p.line, `consensus(${p.odds.books})`, p.odds.mean);
+    pushLinea(matchId, 'total_games', p.lado, p.line, 'market_max', p.odds.max);
+  }
+  for (const p of pendientesHcp) {
+    const matchId = idPorClave.get(p.sourceKey);
+    if (!matchId) continue;
+    pushLinea(matchId, 'games_hcp', p.sel, p.line, `consensus(${p.odds.books})`, p.odds.mean);
+    pushLinea(matchId, 'games_hcp', p.sel, p.line, 'market_max', p.odds.max);
+  }
+
   await runBatch(client, oddsStmts, 'cuotas');
   console.log(`Escritos ${resueltos} partidos programados y ${oddsStmts.length} filas de cuota.`);
 }

@@ -11,6 +11,13 @@
  * jugadores, la probabilidad debe ser 1-p).
  */
 
+/**
+ * `markovLogit` es la única feature cuya matemática NO vive en este fichero:
+ * es el logit de la probabilidad de partido del motor punto a punto
+ * (Barnett-Clarke + Markov), demasiado grande para caber aquí — ver markov.ts.
+ * Se calcula igual que el resto: con el estado walk-forward previo al partido,
+ * en scripts/train-elo.ts.
+ */
 export const FEATURE_NAMES = [
   'eloDiffSurface',
   'eloDiffOverall',
@@ -25,6 +32,7 @@ export const FEATURE_NAMES = [
   'expDiff',
   'surfaceExpDiff',
   'bestOf5EloDiff',
+  'markovLogit',
 ] as const;
 
 export type FeatureName = (typeof FEATURE_NAMES)[number];

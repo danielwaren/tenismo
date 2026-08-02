@@ -68,7 +68,7 @@ async function main() {
         select f.match_id,
                f.elo_diff_surface, f.elo_diff_overall, f.rank_log_diff, f.points_log_diff,
                f.h2h, f.h2h_surface, f.load_diff, f.intensity_diff, f.rest_diff,
-               f.form_diff, f.exp_diff, f.surface_exp_diff, f.best_of5_elo_diff,
+               f.form_diff, f.exp_diff, f.surface_exp_diff, f.best_of5_elo_diff, f.markov_logit,
                base.confidence as confidence
         from match_features f
         left join model_outputs mine on mine.match_id = f.match_id and mine.model_version = ?
@@ -91,7 +91,7 @@ async function main() {
       Number(r.points_log_diff), Number(r.h2h), Number(r.h2h_surface),
       Number(r.load_diff), Number(r.intensity_diff), Number(r.rest_diff),
       Number(r.form_diff), Number(r.exp_diff), Number(r.surface_exp_diff),
-      Number(r.best_of5_elo_diff),
+      Number(r.best_of5_elo_diff), Number(r.markov_logit),
     ];
     const p = predictProb(x, model);
     return {

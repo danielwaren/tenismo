@@ -2,7 +2,7 @@ import { db } from './db';
 import { sameScore, parseScore } from './score';
 import {
   brierScore, logLoss, brierSkillScore, reliabilityBins, devigTwoWay,
-  FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES,
+  FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES, estimateServeProb,
   type BinaryOutcome, type FeatureName, type ServeProfile, type MatchAceEstimate,
 } from '@tti/model';
 
@@ -296,6 +296,101 @@ export async function getAceEstimates(matchIds: number[]): Promise<Map<number, M
     if (est?.reliable) {
       out.set(Number(r.id), { ...est, bySurface: conSuperficie && a.bySurface && b.bySurface });
     }
+  }
+  return out;
+}
+
+export interface MarkovInputs {
+  pa: number;
+  pb: number;
+  bestOf: number | null;
+  /** Igual que en getAceEstimates: false = tirando del perfil global, no de la superficie. */
+  bySurface: boolean;
+}
+
+/**
+ * Probabilidades de punto al saque (p_a, p_b) para el motor Markov, walk del
+ * mismo patrón perfil-por-superficie-con-respaldo-global que `getAceEstimates`
+ * — es la misma limitación real (ESPN no da superficie en los programados) y
+ * la misma solución. Se usa para proyectar Total de Juegos y Hándicap en el
+ * Paper Trading: `packages/model/src/markov.ts` hace las matemáticas, aquí
+ * solo se arma el `PointCount` de cada jugador desde `match_stats`.
+ */
+export async function getMarkovInputs(matchIds: number[]): Promise<Map<number, MarkovInputs>> {
+  const out = new Map<number, MarkovInputs>();
+  if (!matchIds.length) return out;
+
+  const c = db();
+  const ph = matchIds.map(() => '?').join(',');
+  const res = await c.execute({
+    sql: `
+      with base as (
+        select s.player_id, s.serve_points, s.first_won, s.second_won,
+               o.serve_points opp_svpt, o.first_won opp_fw, o.second_won opp_sw,
+               mt.surface, coalesce(mt.best_of, 3) best_of
+        from match_stats s
+        join match_stats o on o.match_id = s.match_id and o.player_id <> s.player_id
+        join matches mt on mt.id = s.match_id
+      ),
+      perfil as (
+        select player_id, surface clave,
+               sum(serve_points) svpt, sum(first_won) fw, sum(second_won) sw,
+               sum(opp_svpt) ret_pts, sum(opp_svpt - opp_fw - opp_sw) ret_won
+        from base where surface is not null group by player_id, surface
+        union all
+        select player_id, 'ALL',
+               sum(serve_points), sum(first_won), sum(second_won),
+               sum(opp_svpt), sum(opp_svpt - opp_fw - opp_sw)
+        from base group by player_id
+      ),
+      circuito as (
+        select surface clave,
+               1.0 * sum(first_won + second_won) / nullif(sum(serve_points), 0) tasa
+        from base where surface is not null group by surface
+        union all
+        select 'ALL', 1.0 * sum(first_won + second_won) / nullif(sum(serve_points), 0)
+        from base
+      )
+      select m.id, m.best_of, m.surface is not null tiene_superficie,
+             ct.tasa tour_rate,
+             sa.svpt a_svpt, sa.fw a_fw, sa.sw a_sw, sa.ret_pts a_ret_pts, sa.ret_won a_ret_won,
+             sb.svpt b_svpt, sb.fw b_fw, sb.sw b_sw, sb.ret_pts b_ret_pts, sb.ret_won b_ret_won,
+             ga.svpt ga_svpt, ga.fw ga_fw, ga.sw ga_sw, ga.ret_pts ga_ret_pts, ga.ret_won ga_ret_won,
+             gb.svpt gb_svpt, gb.fw gb_fw, gb.sw gb_sw, gb.ret_pts gb_ret_pts, gb.ret_won gb_ret_won
+      from matches m
+      join circuito ct on ct.clave = coalesce(m.surface, 'ALL')
+      left join perfil sa on sa.player_id = m.p1_id and sa.clave = coalesce(m.surface, 'ALL')
+      left join perfil sb on sb.player_id = m.p2_id and sb.clave = coalesce(m.surface, 'ALL')
+      left join perfil ga on ga.player_id = m.p1_id and ga.clave = 'ALL'
+      left join perfil gb on gb.player_id = m.p2_id and gb.clave = 'ALL'
+      where m.id in (${ph})`,
+    args: matchIds,
+  });
+
+  const serveCount = (svpt: unknown, fw: unknown, sw: unknown) => {
+    const points = Number(svpt ?? 0);
+    return { won: Number(fw ?? 0) + Number(sw ?? 0), points };
+  };
+  const returnCount = (pts: unknown, won: unknown) => ({ points: Number(pts ?? 0), won: Number(won ?? 0) });
+
+  for (const r of res.rows) {
+    const tourServeRate = Number(r.tour_rate ?? 0);
+    if (!(tourServeRate > 0)) continue; // sin referencia del circuito, no se puede encoger nada
+
+    const svA = serveCount(r.a_svpt, r.a_fw, r.a_sw);
+    const svB = serveCount(r.b_svpt, r.b_fw, r.b_sw);
+    const bySurface = Number(r.tiene_superficie) === 1 && svA.points >= MIN_SERVE_GAMES && svB.points >= MIN_SERVE_GAMES;
+
+    const [svAf, rtAf, svBf, rtBf] = bySurface
+      ? [svA, returnCount(r.a_ret_pts, r.a_ret_won), svB, returnCount(r.b_ret_pts, r.b_ret_won)]
+      : [
+          serveCount(r.ga_svpt, r.ga_fw, r.ga_sw), returnCount(r.ga_ret_pts, r.ga_ret_won),
+          serveCount(r.gb_svpt, r.gb_fw, r.gb_sw), returnCount(r.gb_ret_pts, r.gb_ret_won),
+        ];
+
+    const pa = estimateServeProb(svAf, rtBf, { tourServeRate });
+    const pb = estimateServeProb(svBf, rtAf, { tourServeRate });
+    out.set(Number(r.id), { pa, pb, bestOf: r.best_of === null ? null : Number(r.best_of), bySurface });
   }
   return out;
 }
@@ -844,6 +939,7 @@ const FEATURE_FRASE: Record<FeatureName, string> = {
   expDiff: 'la experiencia',
   surfaceExpDiff: 'la experiencia en esta superficie',
   bestOf5EloDiff: 'la ventaja al mejor de 5 sets',
+  markovLogit: 'el motor punto a punto (saque y resto)',
 };
 
 /** Construye 3-4 frases a partir de los factores que más pesaron. */
@@ -1135,7 +1231,11 @@ export interface PaperTradeRow {
   matchId: number;
   p1Name: string;
   p2Name: string;
+  /** 'ML' | 'TOTAL_GAMES' | 'GAMES_HCP'. Set y Aces no tienen aquí: sin cuota real, no hay apuesta que simular. */
+  market: string;
   selection: string;
+  line: number | null;
+  /** Etiqueta lista para pintar: "Fritz T." · "Más de 21.5 juegos" · "Nakashima B. −3.5". */
   selectionName: string;
   oddsTaken: number;
   edge: number;
@@ -1146,10 +1246,28 @@ export interface PaperTradeRow {
   placedAt: string;
 }
 
+/** Nombre legible de la selección, según el mercado. */
+function paperSelectionName(market: string, selection: string, line: number | null, p1Name: string, p2Name: string): string {
+  if (market === 'TOTAL_GAMES') {
+    const l = line === null ? '' : ` ${line}`;
+    return selection === 'over' ? `Más de${l} juegos` : `Menos de${l} juegos`;
+  }
+  if (market === 'GAMES_HCP') {
+    const name = selection === 'p1' ? p1Name : p2Name;
+    const l = line === null ? '' : ` ${line > 0 ? '+' : ''}${line}`;
+    return `${name}${l}`;
+  }
+  return selection === 'p1' ? p1Name : p2Name; // ML
+}
+
+const MARKET_LABEL: Record<string, string> = {
+  ML: 'Ganador', TOTAL_GAMES: 'Total de juegos', GAMES_HCP: 'Hándicap de juegos',
+};
+
 export async function getPaperTrades(limit = 50): Promise<PaperTradeRow[]> {
   const c = db();
   const rows = (await c.execute({
-    sql: `select pt.id, pt.match_id, pt.selection, pt.odds_taken, pt.edge, pt.stake,
+    sql: `select pt.id, pt.match_id, pt.market, pt.selection, pt.line, pt.odds_taken, pt.edge, pt.stake,
                  pt.status, pt.profit, pt.clv, pt.placed_at,
                  p1.name p1_name, p2.name p2_name
           from paper_trades pt
@@ -1159,15 +1277,52 @@ export async function getPaperTrades(limit = 50): Promise<PaperTradeRow[]> {
           order by pt.placed_at desc limit ?`,
     args: [limit],
   })).rows;
+  return rows.map((r) => {
+    const market = String(r.market);
+    const line = r.line === null ? null : Number(r.line);
+    return {
+      id: Number(r.id), matchId: Number(r.match_id),
+      p1Name: String(r.p1_name), p2Name: String(r.p2_name),
+      market: MARKET_LABEL[market] ?? market,
+      selection: String(r.selection), line,
+      selectionName: paperSelectionName(market, String(r.selection), line, String(r.p1_name), String(r.p2_name)),
+      oddsTaken: Number(r.odds_taken), edge: Number(r.edge), stake: Number(r.stake),
+      status: String(r.status),
+      profit: r.profit === null ? null : Number(r.profit),
+      clv: r.clv === null ? null : Number(r.clv),
+      placedAt: String(r.placed_at),
+    };
+  });
+}
+
+export interface PaperMarketBreakdown {
+  market: string;
+  n: number;
+  open: number;
+  won: number;
+  lost: number;
+  voidCount: number;
+  profit: number;
+  clvMean: number | null;
+}
+
+/** Desglose por mercado: aparece en cuanto hay más de un mercado con apuestas. */
+export async function getPaperMarketBreakdown(): Promise<PaperMarketBreakdown[]> {
+  const c = db();
+  const rows = (await c.execute(`
+    select market, count(*) n,
+           sum(case when status='open' then 1 else 0 end) open,
+           sum(case when status='won' then 1 else 0 end) won,
+           sum(case when status='lost' then 1 else 0 end) lost,
+           sum(case when status='void' then 1 else 0 end) voidc,
+           coalesce(sum(coalesce(profit,0)),0) profit,
+           avg(clv) clv_mean
+    from paper_trades group by market order by market
+  `)).rows;
   return rows.map((r) => ({
-    id: Number(r.id), matchId: Number(r.match_id),
-    p1Name: String(r.p1_name), p2Name: String(r.p2_name),
-    selection: String(r.selection),
-    selectionName: String(r.selection === 'p1' ? r.p1_name : r.p2_name),
-    oddsTaken: Number(r.odds_taken), edge: Number(r.edge), stake: Number(r.stake),
-    status: String(r.status),
-    profit: r.profit === null ? null : Number(r.profit),
-    clv: r.clv === null ? null : Number(r.clv),
-    placedAt: String(r.placed_at),
+    market: MARKET_LABEL[String(r.market)] ?? String(r.market),
+    n: Number(r.n), open: Number(r.open), won: Number(r.won), lost: Number(r.lost), voidCount: Number(r.voidc),
+    profit: Math.round(Number(r.profit) * 100) / 100,
+    clvMean: r.clv_mean === null ? null : Math.round(Number(r.clv_mean) * 1e4) / 1e4,
   }));
 }

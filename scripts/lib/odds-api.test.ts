@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   consensusFromEvent, tourFromSportKey, tournamentNameFromKey, TOURNAMENT_INFO,
+  totalsFromEvent, spreadsFromEvent,
   type OddsApiEvent,
 } from './odds-api';
 import { buildIndex, resolvePlayer, candidateSlugs } from '../../src/lib/players';
@@ -136,5 +137,88 @@ describe('resolución de jugadores', () => {
   it('un desconocido queda sin resolver en vez de emparejarse a la fuerza', () => {
     const r = resolvePlayer('Jean-Julien Rojer', index, sinAlias);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('totalsFromEvent / spreadsFromEvent', () => {
+  // Estructura verificada contra la API real (2026-08-01): ATP Canadian Open,
+  // Vallejo (home) vs Shang (away), casa Pinnacle. h2h/spreads/totals con la
+  // forma exacta que devuelve el servidor, no un fixture inventado.
+  const realEvento: OddsApiEvent = {
+    id: 'real1',
+    sport_key: 'tennis_atp_canadian_open',
+    commence_time: '2026-08-02T15:00:00Z',
+    home_team: 'Adolfo Daniel Vallejo',
+    away_team: 'Juncheng Shang',
+    bookmakers: [
+      { key: 'pinnacle', title: 'Pinnacle', markets: [
+        { key: 'h2h', outcomes: [{ name: 'Adolfo Daniel Vallejo', price: 2.28 }, { name: 'Juncheng Shang', price: 1.69 }] },
+        { key: 'spreads', outcomes: [{ name: 'Adolfo Daniel Vallejo', price: 1.89, point: 2 }, { name: 'Juncheng Shang', price: 1.98, point: -2 }] },
+        { key: 'totals', outcomes: [{ name: 'Over', price: 1.92, point: 22 }, { name: 'Under', price: 1.95, point: 22 }] },
+      ] },
+      // Segunda casa, línea de totals distinta: menos votos que Pinnacle+esta
+      // combinación si otra línea reúne más casas — aquí solo hay 2, así que
+      // "22" (con Pinnacle) debe ganar por tener más votos si una tercera casa
+      // también publica 22.
+      { key: 'betfair', title: 'Betfair', markets: [
+        { key: 'totals', outcomes: [{ name: 'Over', price: 1.87, point: 21.5 }, { name: 'Under', price: 2.0, point: 21.5 }] },
+        { key: 'spreads', outcomes: [{ name: 'Adolfo Daniel Vallejo', price: 1.95, point: 2 }, { name: 'Juncheng Shang', price: 1.9, point: -2 }] },
+      ] },
+      { key: 'unibet', title: 'Unibet', markets: [
+        { key: 'totals', outcomes: [{ name: 'Over', price: 1.9, point: 22 }, { name: 'Under', price: 1.9, point: 22 }] },
+      ] },
+    ],
+  };
+
+  it('totalsFromEvent agrega la línea con más casas, no la primera que aparece', () => {
+    // 22 tiene 2 casas (Pinnacle+Unibet, 4 votos); 21.5 tiene 1 (Betfair, 2 votos).
+    const t = totalsFromEvent(realEvento)!;
+    expect(t.line).toBe(22);
+    expect(t.a.books).toBe(2); // Over a línea 22
+    expect(t.b.books).toBe(2); // Under a línea 22
+    expect(t.a.mean).toBeCloseTo((1.92 + 1.9) / 2, 6);
+    expect(t.a.max).toBe(1.92);
+  });
+
+  it('spreadsFromEvent conserva el signo del lado home', () => {
+    // Vallejo (home) tiene point=+2 en las dos casas: es el desvalido.
+    const s = spreadsFromEvent(realEvento)!;
+    expect(s.line).toBe(2);
+    expect(s.a.books).toBe(2);
+    expect(s.b.books).toBe(2);
+    expect(s.a.mean).toBeCloseTo((1.89 + 1.95) / 2, 6);
+  });
+
+  it('spreadsFromEvent da signo negativo cuando home es el favorito', () => {
+    const favorito: OddsApiEvent = {
+      ...realEvento,
+      bookmakers: [{ key: 'pinnacle', title: 'Pinnacle', markets: [
+        { key: 'spreads', outcomes: [{ name: 'Adolfo Daniel Vallejo', price: 1.9, point: -3.5 }, { name: 'Juncheng Shang', price: 1.9, point: 3.5 }] },
+      ] }],
+    };
+    expect(spreadsFromEvent(favorito)!.line).toBe(-3.5);
+  });
+
+  it('sin mercado totals/spreads, null (no se inventa una línea)', () => {
+    const soloH2h: OddsApiEvent = {
+      ...realEvento,
+      bookmakers: [{ key: 'pinnacle', title: 'Pinnacle', markets: [
+        { key: 'h2h', outcomes: [{ name: 'Adolfo Daniel Vallejo', price: 2 }, { name: 'Juncheng Shang', price: 1.8 }] },
+      ] }],
+    };
+    expect(totalsFromEvent(soloH2h)).toBeNull();
+    expect(spreadsFromEvent(soloH2h)).toBeNull();
+  });
+
+  it('ignora un lado sin precio válido (odds <= 1, o point ausente)', () => {
+    const roto: OddsApiEvent = {
+      ...realEvento,
+      bookmakers: [{ key: 'x', title: 'X', markets: [
+        { key: 'totals', outcomes: [{ name: 'Over', price: 0.5, point: 22 }, { name: 'Under', price: 1.9, point: 22 }] },
+      ] }],
+    };
+    // El lado Over quedó sin ninguna cuota válida -> la línea no tiene los dos
+    // lados y se descarta entera.
+    expect(totalsFromEvent(roto)).toBeNull();
   });
 });

@@ -24,7 +24,9 @@ export interface OddsApiSport {
   title: string;
 }
 
-export interface OddsApiOutcome { name: string; price: number }
+// `point` solo viene en totals ('Over'/'Under' + la línea) y spreads (el
+// nombre del jugador + su hándicap, con signo opuesto al del rival).
+export interface OddsApiOutcome { name: string; price: number; point?: number }
 export interface OddsApiMarket { key: string; outcomes: OddsApiOutcome[] }
 export interface OddsApiBookmaker { key: string; title: string; markets: OddsApiMarket[] }
 export interface OddsApiEvent {
@@ -133,14 +135,26 @@ export async function fetchSports(apiKey: string): Promise<{ sports: OddsApiSpor
   return { sports: (await res.json()) as OddsApiSport[], quota: quotaFrom(res) };
 }
 
-/** Cuotas de un torneo. Cuesta 1 crédito con regions=eu y markets=h2h. */
+/**
+ * Cuotas de un torneo: ganador (h2h), total de juegos (totals) y hándicap de
+ * juegos (spreads). VERIFICADO CONTRA LA API REAL (no solo documentación): los
+ * tres existen para tenis — 32 eventos de prueba, hasta 17 casas cada uno.
+ * `totals`/`spreads`/`outrights` cuestan 1 crédito cada uno por combinación de
+ * region (ver la cabecera del fichero); pedir los tres juntos en una sola
+ * llamada sale más barato que tres llamadas sueltas.
+ *
+ * NO hay mercado de sets ni de aces: se pidieron expresamente y la API los
+ * rechazó como "Invalid markets". Por eso el Paper Trading solo cubre
+ * Ganador y Juegos — Set y Aces se quedan en proyección informativa, sin
+ * cuota real con la que compararlos.
+ */
 export async function fetchOdds(
   apiKey: string,
   sportKey: string,
   regions = 'eu',
 ): Promise<{ events: OddsApiEvent[]; quota: QuotaInfo }> {
   const url = `${ODDS_API_BASE}/sports/${sportKey}/odds/` +
-    `?apiKey=${apiKey}&regions=${regions}&markets=h2h&oddsFormat=decimal&dateFormat=iso`;
+    `?apiKey=${apiKey}&regions=${regions}&markets=h2h,totals,spreads&oddsFormat=decimal&dateFormat=iso`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`the-odds-api ${sportKey}: HTTP ${res.status} ${await res.text().catch(() => '')}`);
   return { events: (await res.json()) as OddsApiEvent[], quota: quotaFrom(res) };
@@ -184,4 +198,89 @@ export function consensusFromEvent(ev: OddsApiEvent): ConsensusOdds | null {
     books: xs.length,
   });
   return { home: agg(acc.home), away: agg(acc.away) };
+}
+
+export interface ConsensusLine {
+  line: number;
+  a: { mean: number; max: number; books: number };
+  b: { mean: number; max: number; books: number };
+}
+
+const agg = (xs: number[]) => ({
+  mean: xs.reduce((s, x) => s + x, 0) / xs.length,
+  max: Math.max(...xs),
+  books: xs.length,
+});
+
+/**
+ * Total de juegos (Over/Under) consensuado de un evento.
+ *
+ * Distintas casas publican líneas ligeramente distintas (21.5, 22, 22.5): se
+ * agrupan por línea EXACTA y se toma la que más casas cubren, no la primera
+ * que aparece — es la más representativa del consenso real, no un accidente
+ * de qué libro llegó primero al array.
+ */
+export function totalsFromEvent(ev: OddsApiEvent): ConsensusLine | null {
+  const byLine = new Map<number, { over: number[]; under: number[] }>();
+  for (const bm of ev.bookmakers ?? []) {
+    for (const mk of bm.markets ?? []) {
+      if (mk.key !== 'totals') continue;
+      for (const o of mk.outcomes ?? []) {
+        const price = Number(o.price);
+        const line = Number(o.point);
+        if (!(price > 1) || !Number.isFinite(line)) continue;
+        const bucket = byLine.get(line) ?? { over: [], under: [] };
+        if (o.name === 'Over') bucket.over.push(price);
+        else if (o.name === 'Under') bucket.under.push(price);
+        byLine.set(line, bucket);
+      }
+    }
+  }
+  let best: { line: number; over: number[]; under: number[] } | null = null;
+  for (const [line, b] of byLine) {
+    if (!b.over.length || !b.under.length) continue;
+    const votos = b.over.length + b.under.length;
+    if (!best || votos > best.over.length + best.under.length) best = { line, ...b };
+  }
+  if (!best) return null;
+  return { line: best.line, a: agg(best.over), b: agg(best.under) };
+}
+
+/**
+ * Hándicap de juegos consensuado. `line` es el hándicap de `a` (home) CON
+ * SIGNO: positivo significa que home es el desvalido (recibe juegos),
+ * negativo que es el favorito (los da). El de `b` (away) es el mismo número
+ * en negativo por construcción del mercado — no hace falta guardarlo aparte.
+ *
+ * Se agrupa por MAGNITUD (|point|) porque cada casa publica el mismo número
+ * con signo opuesto para cada jugador, y hay que juntar las dos filas en una
+ * sola línea de mercado; pero el signo de `line` se toma del lado de home
+ * específicamente, para no perder quién es el favorito.
+ */
+export function spreadsFromEvent(ev: OddsApiEvent): ConsensusLine | null {
+  const byMagnitud = new Map<number, { home: number[]; away: number[]; homeSign: number }>();
+  for (const bm of ev.bookmakers ?? []) {
+    for (const mk of bm.markets ?? []) {
+      if (mk.key !== 'spreads') continue;
+      for (const o of mk.outcomes ?? []) {
+        const price = Number(o.price);
+        const point = Number(o.point);
+        if (!(price > 1) || !Number.isFinite(point) || point === 0) continue;
+        const magnitud = Math.abs(point);
+        const bucket = byMagnitud.get(magnitud) ?? { home: [], away: [], homeSign: 0 };
+        if (o.name === ev.home_team) { bucket.home.push(price); bucket.homeSign = Math.sign(point); }
+        else if (o.name === ev.away_team) bucket.away.push(price);
+        byMagnitud.set(magnitud, bucket);
+      }
+    }
+  }
+  let best: { magnitud: number; home: number[]; away: number[]; homeSign: number } | null = null;
+  for (const [magnitud, b] of byMagnitud) {
+    // Sin haber visto el lado de home no se sabe el signo: esa línea se descarta.
+    if (!b.home.length || !b.away.length || b.homeSign === 0) continue;
+    const votos = b.home.length + b.away.length;
+    if (!best || votos > best.home.length + best.away.length) best = { magnitud, ...b };
+  }
+  if (!best) return null;
+  return { line: best.magnitud * best.homeSign, a: agg(best.home), b: agg(best.away) };
 }

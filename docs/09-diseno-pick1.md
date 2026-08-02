@@ -509,9 +509,10 @@ exactamente con el bloque del rival en la ficha de B.
 partidos que TA conoce y nosotros no (Challengers sobre todo) quedan en
 `ta_matches` esperando una decisión consciente de promoverlos.
 
-**Pendiente**: el workflow `ta.yml` de GitHub Actions y correr las migraciones
-contra Turso (008 se ha aplicado solo en local, el mismo descuido de las 005/006
-en la Fase 2).
+**Actualización (ago 2026): ya no hay pendientes de esta lista.** El workflow
+`ta.yml` está en `.github/workflows/`, corre a diario y la migración 008 está
+aplicada en Turso. Lo que sigue pendiente es específicamente el motor Markov
+(§2.11) y todo lo de la Fase de picks (§5 en adelante).
 
 ---
 
@@ -638,6 +639,67 @@ vector sobre marcadores. En la práctica:
 - **Monte Carlo** (50.000 simulaciones punto a punto) para el total de puntos y
   cualquier mercado conjunto. La MC además da los intervalos de confianza que
   alimentan el `confidence` del pick (§5.4).
+
+### 2.4.1 Estado: motor implementado (ago 2026), resultado honesto
+
+`packages/model/src/markov.ts` implementa §2.1-2.4 completos: `estimateServeProb`
+(Barnett-Clarke con encogimiento, κ=400), `gameProb` (forma cerrada), `tiebreakProb`
+(recursión memoizada), `setWinProb` y `matchWinProb` (best-of-3/5). 29 tests.
+
+**Dos correcciones que salieron al construirlo, no al diseñarlo:**
+
+1. **El tope de seguridad contra recursión infinita del tie-break estaba mal
+   planteado.** La primera versión topaba por la *diferencia* de puntos
+   (`i-j >= CAP`); en un tie-break muy reñido esa diferencia se queda pequeña
+   indefinidamente mientras el *total* de puntos crece sin límite, así que el
+   tope nunca se disparaba y la pila reventaba. Corregido topando por el total
+   (`i+j >= 200`, probabilidad de llegar ahí indistinguible de 0).
+2. **La antisimetría no necesitaba el promedio que proponía §2.4.** La
+   intuición de que "quién saca primero" rompería la antisimetría de
+   `setWinProb` resultó falsa: comprobado numéricamente en cuatro parejas de
+   $(p_a,p_b)$ extremas, `setWinProb(p_a,p_b) + setWinProb(p_b,p_a) = 1` exacto
+   a precisión de máquina. Bajo el modelo de puntos i.i.d., a quién le toca
+   sacar primero no cambia la probabilidad de ganar el set. Se simplificó el
+   código en consecuencia (sin la función de promedio que el diseño original
+   contemplaba).
+
+**Integración walk-forward**: `markovLogit` = logit($M$) entra como feature
+nº14 de la regresión (`packages/model/src/features.ts`), calculada en
+`scripts/train-elo.ts` con el perfil de saque PREVIO al partido — igual patrón
+que el Elo. El perfil se persiste en `player_serve_stats` / `tour_serve_stats`
+(migración 010): sin eso, cada ejecución incremental del cron diario
+reconstruiría el perfil desde cero y la feature saldría neutral casi siempre en
+producción, aunque funcionara perfecto en un backtest completo.
+
+**Cobertura** (base completa, ago 2026): 46 % de los 64.545 partidos con
+features tienen `markov_logit != 0` (el resto, sin estadísticas de Tennis
+Abstract para alguno de los dos jugadores, cae exactamente en 0 — no es un
+fallo, es degradación correcta: perfil vacío → media del circuito para los dos
+lados → set 50/50 → logit 0).
+
+**RESULTADO HONESTO — el motor apenas mueve la aguja.** Reajustado el modelo
+completo (14 features, test >2023, 9.862 partidos con cuota):
+
+| | Sin markovLogit | Con markovLogit |
+|---|---|---|
+| Brier (todos) | 0,2160 | 0,2158 |
+| Brier (solo partidos con dato real, n=5.023) | 0,2153 | 0,2150 |
+
+El peso ajustado de `markovLogit` (+0,061) es de los más bajos de las 14
+features — muy por debajo de `eloDiffSurface` (+0,409). La mejora es
+consistente en la dirección correcta pero pequeña, incluso restringida a los
+partidos donde la feature tiene información real. La brecha con el mercado
+sigue siendo la misma que ya medía la Fase 1.5 (36 % cerrado): el Elo ya
+capturaba la mayor parte de lo que el saque y el resto aportan.
+
+**Interpretación**: no es que el motor esté mal construido (las invariantes
+matemáticas se sostienen, la integración es walk-forward correcta), es que en
+tenis el Elo por superficie ya absorbe gran parte de la capacidad de saque de
+un jugador — tiene sentido, porque ganar puntos al saque es una de las cosas
+que hace que el Elo suba. El valor real del motor no está en la variable
+`markovLogit`, sino en lo que §2.8 (Aces) y el resto de mercados granulares
+pueden construir sobre él directamente: ahí no hay Elo que compita, y es donde
+sí falta información que solo el modelo punto a punto puede dar.
 
 ### 2.5 Elo dinámico por superficie
 
@@ -1246,6 +1308,62 @@ Los pasos 3, 5, 6 y 7 son TypeScript puro con tests unitarios — se pueden vali
 contra valores conocidos de la literatura (p. ej. $p = 0{,}65 \Rightarrow
 G(p) = 0{,}8296$) sin tocar la base. El paso 4 es el que **invalida los ajustes
 guardados** y obliga a versionar el modelo.
+
+---
+
+## 6.1 Estado: Paper Trading multi-mercado implementado (ago 2026)
+
+Ganador, Total de Juegos y Hándicap de Juegos, los tres con cuota real de
+The Odds API (verificado contra la API en vivo: 32 eventos, hasta 17 casas,
+mercados `h2h`/`totals`/`spreads` confirmados para tenis). Se pidió también un
+mercado de aces (`player_aces`) y la API lo rechazó como inválido — **no existe
+mercado de Set ni de Aces en esta fuente**, así que esos dos siguen siendo solo
+proyección informativa en la ficha del partido, sin apuesta simulada: la regla
+del proyecto es que la cuota siempre viene de una casa real.
+
+**Motor**: `packages/model/src/markov.ts` añade `simulateMatch` — Monte Carlo
+juego a juego (8.000 simulaciones, semilla fija) usando `gameProb`/
+`tiebreakProb` —ya exactas— como la probabilidad de cada sorteo, no
+Monte Carlo punto a punto. Da la distribución de juegos totales y el margen,
+de donde salen Total y Hándicap. 36 tests, incluida la convergencia contra
+`matchWinProb` y la antisimetría del margen.
+
+**pa/pb de cada partido**: `getMarkovInputs` (`src/lib/queries.ts`) reutiliza el
+mismo patrón perfil-por-superficie-con-respaldo-global que `getAceEstimates`,
+aplicando `estimateServeProb` (Barnett-Clarke).
+
+**Esquema**: migración 012 — `odds.line` (nueva columna) y `paper_trades`
+rehecha con `market`/`line`/`selection` ampliado a over/under, una apuesta por
+partido *y* mercado. La liquidación (`scripts/paper-trade.ts`) verificada con
+seis casos de prueba controlados (ganada/perdida/**push** en los tres mercados,
+usando un partido ficticio 6-4 6-3 con marcador conocido) antes de tocar datos
+reales — el caso de push (línea entera que empata el margen exacto) es fácil de
+olvidar y **si se olvida, cuenta como pérdida en vez de devolver el stake**.
+
+**HALLAZGO QUE QUEDA ABIERTO, no cerrado.** La primera pasada real (Canadian
+Open, 61 partidos) colocó 50 apuestas de Total de Juegos y **49 de las 50
+fueron "over"**, con ventajas declaradas de 15-40%. Es exactamente el patrón
+que ya hundió el mercado de Ganador en la Fase 2 ("cuanta más ventaja declara,
+más pierde"), así que no se da por bueno solo porque los números parezcan
+buenos:
+
+- Un backtest de 300 partidos ya jugados (perfiles actuales, no walk-forward
+  estricto) da un sesgo pequeño y **no direccional**: predicho 24,47 vs real
+  25,43 (sesgo −0,96, MAE 6,29). El motor no está sesgado de forma estructural
+  hacia más juegos en general.
+- La media histórica real de juegos por partido (2024+, n=5.000) es **24,12**,
+  bastante por encima de las líneas de mercado capturadas hoy (21-22,5). La
+  discrepancia puede ser real (el Canadian Open de esta semana es fase de
+  clasificación con jugadores de perfil bajo, y esos partidos podrían tener
+  líneas peor calibradas por el mercado) o puede ser una limitación de usar el
+  perfil de CARRERA de cada jugador en vez de uno más ajustado al contexto.
+- **No se puede saber cuál es sin CLV real** de estas apuestas liquidadas.
+  Sigue en modo auditoría (`value_enabled=0`); nada de esto es una
+  recomendación de apostar dinero real todavía.
+
+**UI**: `/paper-trading` desglosa por mercado (`getPaperMarketBreakdown`) y la
+tabla muestra el mercado y la selección en lenguaje llano ("Más de 21,5
+juegos", "Wang X. −0,5").
 
 ---
 

@@ -1,0 +1,11 @@
+-- `rating_history` tiene ON DELETE CASCADE desde matches.id pero nunca tuvo un
+-- índice sobre `match_id` — solo el de (player_id, surface, id). Cualquier
+-- borrado en `matches` (recortar histórico, deshacer una ingesta) obliga a
+-- SQLite a recorrer las 257.000+ filas de rating_history por CADA fila borrada
+-- de matches, buscando cuáles depender en cascada. Con 20.000 partidos a
+-- borrar de golpe, eso es del orden de miles de millones de comparaciones —
+-- y es probablemente la razón real de que el primer intento de recorte de
+-- histórico (ago 2026) tardara varios minutos en vez de segundos. Mismo
+-- patrón que ya costó caro en `ta_matches` (migración 011): un ON DELETE
+-- CASCADE sin índice de soporte no falla, solo se vuelve invisible y lento.
+create index if not exists idx_rating_history_match on rating_history(match_id);
