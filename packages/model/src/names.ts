@@ -56,6 +56,31 @@ export function slugFromFullName(raw: string): string {
   return `${surname}-${first[0]}`;
 }
 
+/**
+ * Variantes de slug para cuando la inicial sola no basta: dos jugadores con
+ * el mismo apellido Y la misma inicial (gemelas, hermanos, coincidencia — hay
+ * 22 casos en la base, de Pliskova Ka./Kr. a Zhang Zh./Wang Xin.). La fuente
+ * histórica los distingue con dos o más letras del nombre de pila ("Ka.",
+ * "Xin."), pero `slugFromShortName` solo reconoce como inicial un token de UNA
+ * letra — con más, no recorta nada y el slug guardado queda "apellido nombre"
+ * completo, CON ESPACIO, no con guion. `slugFromFullName` nunca prueba eso, así
+ * que un nombre completo real (de ESPN) nunca resolvía a esos jugadores.
+ */
+export function longInitialSlugCandidates(raw: string): string[] {
+  const n = normalizeName(raw);
+  if (!n) return [];
+  const parts = n.split(' ');
+  if (parts.length === 1) return [];
+  const first = parts[0];
+  const surname = parts.slice(1).join(' ');
+  const out: string[] = [];
+  for (let len = 2; len <= Math.min(4, first.length); len++) {
+    const prefix = first.slice(0, len);
+    out.push(`${surname}-${prefix}`, `${surname} ${prefix}`);
+  }
+  return out;
+}
+
 /** ¿Es una fila de jugador utilizable? Descarta vacíos y marcadores tipo "Bye". */
 export function isRealPlayer(raw: string): boolean {
   const n = normalizeName(raw);

@@ -10,7 +10,7 @@
  * peor que un partido que no se ingiere. Lo que no casa se REGISTRA para
  * revisarlo y crear un alias a mano.
  */
-import { normalizeName, slugFromShortName } from '@tti/model';
+import { normalizeName, slugFromShortName, longInitialSlugCandidates } from '@tti/model';
 
 export interface PlayerIndex {
   /** slug canónico -> id, para un circuito. */
@@ -58,6 +58,11 @@ export function candidateSlugs(fullName: string): string[] {
     // casi siempre usa una sola inicial aunque el jugador tenga dos nombres.
     if (initials.length > 1) out.push(`${surname}-${given[0][0]}`);
   }
+  // Apellido + inicial compartidos por dos jugadores (gemelas, coincidencia):
+  // la fuente distingue con más de una letra del nombre de pila, guardada sin
+  // guion (ver longInitialSlugCandidates). Sin esto un nombre completo real
+  // nunca resuelve a ninguno de los dos.
+  out.push(...longInitialSlugCandidates(fullName));
   return [...new Set(out)];
 }
 
