@@ -45,6 +45,33 @@ const HISTORY_KEEP = 30;
 export const ELO_VERSION = 'tennis-elo-surface-1.0.0';
 const hasFlag = (n: string) => process.argv.includes(`--${n}`);
 
+/**
+ * Challenger y circuito pre-2013 de Tennis Abstract (ver scripts/backtest-elo-ta.ts,
+ * que comparó esto contra la línea base antes de activarlo: Brier ATP
+ * 0.2228→0.2219, WTA sin cambio — es ATP-only, TA-WTA no está en el proyecto).
+ *
+ * Solo se aplican en un `--reset`: mezclarlos en una pasada incremental
+ * rompería el orden cronológico (un Challenger de hace años que HOY se
+ * resuelve por primera vez no puede insertarse después del rating ya
+ * calculado con partidos de 2026). Un reset ya recorre todo desde cero, así
+ * que ahí sí se puede intercalar correctamente por fecha.
+ */
+const TA_LEVELS = ['G', 'M', 'A', 'C'];
+const TA_LEVEL_SERIES: Record<string, string> = {
+  G: 'grand slam', M: 'masters 1000', A: 'default', C: 'challenger',
+};
+const TA_ROUND_TO_ENGLISH: Record<string, string> = {
+  Q1: 'Qualifying', Q2: 'Qualifying', Q3: 'Qualifying',
+  R128: '1st Round', R64: '2nd Round', R32: '3rd Round', R16: '4th Round',
+  QF: 'Quarterfinals', SF: 'Semifinals', BR: 'Semifinals', F: 'The Final', RR: 'Round Robin',
+};
+/** Orden dentro del mismo torneo: `ta_matches.event_date` es el inicio del
+ * torneo, no la fecha del partido, así que todas las rondas comparten fecha. */
+const ROUND_ORDER: Record<string, number> = {
+  Qualifying: 0, '1st Round': 1, '2nd Round': 2, '3rd Round': 3,
+  '4th Round': 4, 'Round Robin': 4, Quarterfinals: 5, Semifinals: 6, 'The Final': 7,
+};
+
 interface PlayerState {
   all: Rating;
   bySurface: Map<string, Rating>;
@@ -169,6 +196,31 @@ async function main() {
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);
+
+  // Fusión cronológica con Challenger/TA — SOLO en --reset (ver comentario de
+  // TA_LEVELS más arriba: fuera de un reset rompería el orden).
+  type Row = Record<string, unknown>;
+  interface ChronoItem { dateKey: string; roundOrder: number; real?: Row; ta?: Row }
+  let chronological: ChronoItem[] = pending.rows.map((r) => ({
+    dateKey: String(r.played_on),
+    roundOrder: ROUND_ORDER[String(r.round ?? '')] ?? 3,
+    real: r,
+  }));
+  if (reset) {
+    const taRows = await client.execute({
+      sql: `select event_date, round, level, surface, a_slug, b_slug, a_player_id, b_player_id, winner_slug
+            from ta_matches
+            where link_status = 'no_candidate' and level in (${TA_LEVELS.map(() => '?').join(',')})
+              and a_player_id is not null and b_player_id is not null`,
+      args: TA_LEVELS,
+    });
+    console.log(`Partidos de Challenger/TA a intercalar: ${taRows.rows.length}`);
+    for (const r of taRows.rows) {
+      const round = TA_ROUND_TO_ENGLISH[String(r.round)] ?? 'default';
+      chronological.push({ dateKey: String(r.event_date), roundOrder: ROUND_ORDER[round] ?? 3, ta: { ...r, round } });
+    }
+    chronological.sort((x, y) => (x.dateKey < y.dateKey ? -1 : x.dateKey > y.dateKey ? 1 : x.roundOrder - y.roundOrder));
+  }
   // Sin partidos jugados nuevos NO se puede salir aquí: los partidos
   // programados siguen necesitando sus features y su pronóstico, y en un día
   // normal (sin resultados nuevos pero con calendario futuro) eso es justo lo
@@ -194,7 +246,57 @@ async function main() {
   // que ambos jugadores están igual de clasificados.
   const ultimoRank = new Map<number, { rank: number | null; points: number | null }>();
 
-  for (const row of pending.rows) {
+  for (const item of chronological) {
+    if (item.ta) {
+      // Partido de Challenger/TA: solo mueve el Elo (global y de superficie).
+      // Sin match_id real no hay features, pronóstico, h2h, perfil de saque
+      // ni marca de elo_applied que tocar — eso sigue siendo exclusivo de
+      // `matches`/tennis-data.
+      const t = item.ta;
+      const p1 = Number(t.a_player_id);
+      const p2 = Number(t.b_player_id);
+      const p1Won = String(t.winner_slug) === String(t.a_slug);
+      const surface = (t.surface as string | null)?.toLowerCase() ?? null;
+      const series = TA_LEVEL_SERIES[String(t.level)] ?? 'default';
+      const round = String(t.round);
+      const playedOn = String(t.event_date);
+
+      const a = get(p1, surface);
+      const b = get(p2, surface);
+      const st1 = state.get(p1)!;
+      const st2 = state.get(p2)!;
+      const beforeAll1 = a.all.elo, beforeAll2 = b.all.elo;
+      const beforeSurf1 = a.surf.elo, beforeSurf2 = b.surf.elo;
+
+      const next = updateRatings({
+        p1Overall: a.all, p1Surface: a.surf, p2Overall: b.all, p2Surface: b.surf,
+        p1Won, series, round,
+      });
+      st1.all = next.p1Overall;
+      st2.all = next.p2Overall;
+      if (surface) {
+        st1.bySurface.set(surface, next.p1Surface);
+        st2.bySurface.set(surface, next.p2Surface);
+      }
+      touched.add(p1);
+      touched.add(p2);
+
+      const hist = (pid: number, scope: string, before: number, after: number) =>
+        historyStmts.push({
+          sql: `insert into rating_history (player_id, surface, match_id, elo_before, elo_after, played_on)
+                values (?, ?, null, ?, ?, ?)`,
+          args: [pid, scope, Math.round(before * 100) / 100, Math.round(after * 100) / 100, playedOn],
+        });
+      hist(p1, 'all', beforeAll1, next.p1Overall.elo);
+      hist(p2, 'all', beforeAll2, next.p2Overall.elo);
+      if (surface) {
+        hist(p1, surface, beforeSurf1, next.p1Surface.elo);
+        hist(p2, surface, beforeSurf2, next.p2Surface.elo);
+      }
+      continue;
+    }
+
+    const row = item.real!;
     const matchId = Number(row.id);
     const p1 = Number(row.p1_id);
     const p2 = Number(row.p2_id);

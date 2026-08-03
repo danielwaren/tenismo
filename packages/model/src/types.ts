@@ -68,6 +68,11 @@ export const TOURNAMENT_WEIGHT: Record<string, number> = {
   'tour championships': 1.1,
   premier: 1.05,
   international: 0.95,
+  // Challenger (ver scripts/backtest-elo-ta.ts): mismo nivel competitivo pero
+  // un cuadro más débil y más variable — cuenta, pero pesa menos que el
+  // circuito principal. 0.7 es una elección deliberada, no calibrada; el
+  // backtest compara antes de tocar el Elo de producción.
+  challenger: 0.7,
   default: 1.0,
 };
 
