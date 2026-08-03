@@ -157,7 +157,13 @@ const MATCH_SELECT = `
 `;
 
 /**
- * Partidos programados (futuros), los más próximos primero.
+ * Partidos programados (futuros), los más próximos primero — pero una final
+ * o semifinal va ANTES que un aluvión de primeras rondas de otro cuadro,
+ * aunque esas primeras rondas tengan fecha nominal más temprana. `played_on`
+ * es una FECHA, no una hora: en un día con 100+ partidos de primera ronda de
+ * un Masters 1000, un `order by played_on, id` puro entierra la final de un
+ * torneo más chico que juega el mismo día bajo toda esa primera ronda, que es
+ * exactamente el caso que se reportó (la final de Washington no aparecía).
  *
  * El filtro de fecha NO es decorativo. `status='scheduled'` solo vuelve a
  * 'completed' cuando la reconciliación encuentra el resultado; si la ingesta se
@@ -171,7 +177,20 @@ export async function getUpcomingMatches(limit = 40): Promise<MatchRow[]> {
   const version = await getModelVersion();
   const res = await c.execute({
     sql: `${MATCH_SELECT} where m.status = 'scheduled' and m.played_on >= date('now', '-1 day')
-          order by m.played_on asc, m.id asc limit ?`,
+          order by
+            case m.round
+              when 'The Final' then 0
+              when 'Semifinals' then 1
+              when 'Quarterfinals' then 2
+              when '4th Round' then 3
+              when '3rd Round' then 4
+              when '2nd Round' then 5
+              when '1st Round' then 6
+              when 'Round Robin' then 6
+              else 7
+            end,
+            m.played_on asc, m.id asc
+          limit ?`,
     args: [version, limit],
   });
   return res.rows.map(mapMatch);

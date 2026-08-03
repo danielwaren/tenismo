@@ -45,7 +45,7 @@ export interface RawMatch {
   wSets: number | null;
   lSets: number | null;
   sets: [number, number][];
-  status: 'completed' | 'retired' | 'walkover' | 'other';
+  status: 'completed' | 'retired' | 'walkover';
   /** Cuotas de cierre por casa, en formato ganador/perdedor. */
   odds: { bookmaker: string; winner: number; loser: number }[];
   sourceKey: string;
@@ -78,12 +78,24 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * A este punto la fila YA tiene ganador y perdedor reales (parseSeason
+ * descarta antes cualquier fila sin los dos nombres válidos) — tennis-data no
+ * publica partidos futuros, solo añade la fila cuando el partido termina. El
+ * comentario ("Completed", "Retired", "Walkover") es circunstancia, no prueba
+ * de que el partido se jugó: si viene vacío (visto justo al terminar un
+ * partido, antes de que se publique el detalle del marcador) el resultado
+ * sigue siendo real y hay que tratarlo como 'completed', no perderlo en un
+ * tercer estado que el resto de la app no reconoce (ni 'scheduled' ni
+ * 'completed' — invisible en "Próximos partidos" Y en los conteos de
+ * jugados). Antes caía aquí: la final de un torneo, apenas resuelta, sin
+ * comentario todavía.
+ */
 function statusFromComment(comment: unknown): RawMatch['status'] {
   const c = String(comment ?? '').toLowerCase();
-  if (c.includes('complet')) return 'completed';
   if (c.includes('retire')) return 'retired';
   if (c.includes('walkover')) return 'walkover';
-  return 'other';
+  return 'completed';
 }
 
 /**
