@@ -88,6 +88,9 @@ jobs:
             npm run db:elo
           fi
 
+      - name: Elo de los últimos 2 años (solo ficha, no alimenta el modelo)
+        run: npm run db:elo:recent
+
       - name: Predecir los partidos nuevos
         # Aplica los pesos YA ajustados; NO reajusta el modelo. Reajustar a
         # diario lo iría cambiando solo, en silencio, y ninguna métrica

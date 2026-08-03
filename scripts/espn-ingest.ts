@@ -38,6 +38,38 @@ function distinctiveTokens(name: string): string[] {
   return normalizeName(name).split(' ').filter((t) => t.length >= 4 && !GENERIC.has(t));
 }
 
+/**
+ * Cuando `surfaceHint` no reconoce el nombre —el caso normal, porque solo
+ * lista arcilla y hierba explícitas y el resto (la mayoría: todo el hard)
+ * queda en null "a propósito"— busca si ESE MISMO torneo ya jugó otra
+ * temporada con otro patrocinador en el nombre (Mifel Open → Abierto
+ * Mexicano Mifel; Rogers Cup → National Bank Open presented by Rogers) y
+ * reutiliza la superficie real que dejó tennis-data entonces. No es una
+ * suposición: es el mismo dato histórico, solo que el nombre cambia cada
+ * año y el enlace de torneo (arriba) solo busca en la temporada actual.
+ */
+async function historicalSurface(
+  client: ReturnType<typeof db>,
+  tourId: number,
+  name: string,
+): Promise<string | null> {
+  const tokens = distinctiveTokens(name);
+  if (!tokens.length) return null;
+  const tokenSet = new Set(tokens);
+  const rows = (await client.execute({
+    sql: 'select name, surface, season from tournaments where tour_id = ? and surface is not null',
+    args: [tourId],
+  })).rows;
+  let best: { season: number; surface: string } | null = null;
+  for (const r of rows) {
+    const overlap = distinctiveTokens(String(r.name)).some((t) => tokenSet.has(t));
+    if (!overlap) continue;
+    const season = Number(r.season);
+    if (!best || season > best.season) best = { season, surface: String(r.surface) };
+  }
+  return best?.surface ?? null;
+}
+
 async function main() {
   const client = db();
   const dryRun = hasFlag('dry-run');
@@ -84,7 +116,7 @@ async function main() {
       const relevantes = t.matches;
       if (!relevantes.length) continue;
       report.tournaments++;
-      const surface = surfaceHint(t.name);
+      const surface = surfaceHint(t.name) ?? (await historicalSurface(client, tourId, t.name));
 
       // Enlace difuso con un torneo existente de la misma temporada, o creación.
       let tournamentId: number | null = null;
@@ -101,6 +133,10 @@ async function main() {
         if (matches.length === 1) { tournamentId = Number(matches[0].id); report.linked++; }
       }
       if (tournamentId === null) {
+        // "insert or ignore" no toca nada si el torneo ya existe (mismo
+        // tour+temporada+nombre exacto, p.ej. el enlace difuso quedó ambiguo
+        // por token compartido con otro torneo de la temporada): el select de
+        // abajo recupera igual el id correcto, enlazado o recién creado.
         await client.execute({
           sql: `insert or ignore into tournaments (tour_id, season, name, surface, court)
                 values (?, ?, ?, ?, ?)`,
@@ -111,6 +147,14 @@ async function main() {
           args: [tourId, t.season, t.name],
         })).rows[0].id);
         report.created++;
+      }
+      // Rellena la superficie que falte, venga el id de enlazar o de crear:
+      // "insert or ignore" no actualiza si la fila ya existía.
+      if (surface) {
+        await client.execute({
+          sql: 'update tournaments set surface = coalesce(surface, ?) where id = ?',
+          args: [surface, tournamentId],
+        });
       }
 
       for (const m of relevantes) {
@@ -159,6 +203,14 @@ async function main() {
           matchId = Number(existente.id);
         } else if (existente) {
           matchId = Number(existente.id);
+          // Superficie: rellena la que falte con la que se acaba de resolver
+          // (nombre o histórico). No pisa una ya buena — solo el hueco.
+          if (surface) {
+            await client.execute({
+              sql: `update matches set surface = coalesce(surface, ?) where id = ?`,
+              args: [surface, matchId],
+            });
+          }
           // Actualiza el partido ESPN/odds existente con el resultado si terminó.
           if (isPost) {
             await client.execute({

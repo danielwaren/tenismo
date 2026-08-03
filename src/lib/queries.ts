@@ -606,6 +606,8 @@ export interface PlayerStats {
   name: string;
   eloOverall: number | null;
   eloSurface: number | null;
+  /** Elo global calculado SOLO con los partidos de los últimos 2 años (scripts/train-elo-recent.ts). */
+  eloRecent: number | null;
   matches: number;
   /** % de victorias en toda su historia registrada. */
   winRate: number | null;
@@ -887,11 +889,12 @@ async function getH2H(
 async function getPlayerStats(playerId: number, name: string, surface: string | null): Promise<PlayerStats> {
   const c = db();
   const elo = (await c.execute({
-    sql: `select surface, elo from player_ratings where player_id = ? and surface in ('all', ?)`,
+    sql: `select surface, elo from player_ratings where player_id = ? and surface in ('all', ?, 'recent2y')`,
     args: [playerId, surface ?? 'all'],
   })).rows;
   const eloOverall = elo.find((r) => r.surface === 'all');
   const eloSurface = surface ? elo.find((r) => r.surface === surface) : undefined;
+  const eloRecent = elo.find((r) => r.surface === 'recent2y');
 
   // Récord global y por superficie: p1_won marca al ganador respecto a p1_id.
   const rec = (await c.execute({
@@ -917,6 +920,7 @@ async function getPlayerStats(playerId: number, name: string, surface: string | 
     playerId, name,
     eloOverall: eloOverall ? Number(eloOverall.elo) : null,
     eloSurface: eloSurface ? Number(eloSurface.elo) : null,
+    eloRecent: eloRecent ? Number(eloRecent.elo) : null,
     matches: n,
     winRate: n > 0 ? w / n : null,
     winRateSurface: ns > 0 ? ws / ns : null,

@@ -128,6 +128,8 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
             <StatRow label={`Elo en ${SURFACE_ES[m.surface]?.toLowerCase() ?? m.surface}`} a={num(s1.eloSurface)} b={num(s2.eloSurface)}
               aBetter={(s1.eloSurface ?? 0) > (s2.eloSurface ?? 0)} bBetter={(s2.eloSurface ?? 0) > (s1.eloSurface ?? 0)} />
           )}
+          <StatRow label="Elo últimos 2 años" a={num(s1.eloRecent)} b={num(s2.eloRecent)}
+            aBetter={(s1.eloRecent ?? 0) > (s2.eloRecent ?? 0)} bBetter={(s2.eloRecent ?? 0) > (s1.eloRecent ?? 0)} />
           <StatRow label="Partidos" a={num(s1.matches)} b={num(s2.matches)} />
           <StatRow label="% victorias" a={rate(s1.winRate)} b={rate(s2.winRate)}
             aBetter={(s1.winRate ?? 0) > (s2.winRate ?? 0)} bBetter={(s2.winRate ?? 0) > (s1.winRate ?? 0)} />
