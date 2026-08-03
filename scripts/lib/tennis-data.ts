@@ -79,23 +79,26 @@ function num(v: unknown): number | null {
 }
 
 /**
- * A este punto la fila YA tiene ganador y perdedor reales (parseSeason
- * descarta antes cualquier fila sin los dos nombres válidos) — tennis-data no
- * publica partidos futuros, solo añade la fila cuando el partido termina. El
- * comentario ("Completed", "Retired", "Walkover") es circunstancia, no prueba
- * de que el partido se jugó: si viene vacío (visto justo al terminar un
- * partido, antes de que se publique el detalle del marcador) el resultado
- * sigue siendo real y hay que tratarlo como 'completed', no perderlo en un
- * tercer estado que el resto de la app no reconoce (ni 'scheduled' ni
- * 'completed' — invisible en "Próximos partidos" Y en los conteos de
- * jugados). Antes caía aquí: la final de un torneo, apenas resuelta, sin
- * comentario todavía.
+ * Un ganador y perdedor reales (parseSeason ya descartó cualquier fila sin
+ * los dos nombres válidos) NO son prueba suficiente de que el partido
+ * terminó: visto en vivo — la final de Washington 2026 apareció en el
+ * fichero con "Winner: Fritz T." mientras el partido de verdad iba apenas
+ * 2-2 en el primer set según ESPN. tennis-data puede rellenar esa columna
+ * antes de que el resultado sea definitivo.
+ *
+ * Por eso, sin un comentario explícito ("Completed"/"Retired"/"Walkover"),
+ * solo se acepta la fila si HAY marcador real (`hasScore`, al menos un set
+ * con W/L). Sin comentario y sin marcador, no se adivina: se descarta la
+ * fila entera (ver parseSeason) — mejor no ingerirla hoy que ingerirla con
+ * un ganador que puede no serlo, y el mismo partido sigue disponible por
+ * ESPN/The Odds API mientras tanto.
  */
-function statusFromComment(comment: unknown): RawMatch['status'] {
+function statusFromComment(comment: unknown, hasScore: boolean): RawMatch['status'] | null {
   const c = String(comment ?? '').toLowerCase();
   if (c.includes('retire')) return 'retired';
   if (c.includes('walkover')) return 'walkover';
-  return 'completed';
+  if (c.includes('complet')) return 'completed';
+  return hasScore ? 'completed' : null;
 }
 
 /**
@@ -177,6 +180,9 @@ export function parseSeason(rows: Row[], tour: 'ATP' | 'WTA', season: number): {
       sets.push([w, l]);
     }
 
+    const status = statusFromComment(get(row, 'Comment'), sets.length > 0);
+    if (status === null) { skip('sin comentario ni marcador: no se puede confirmar que terminó'); continue; }
+
     const odds: RawMatch['odds'] = [];
     for (const [prefix, bookmaker] of Object.entries(BOOKMAKERS)) {
       const w = num(get(row, `${prefix}W`));
@@ -209,7 +215,7 @@ export function parseSeason(rows: Row[], tour: 'ATP' | 'WTA', season: number): {
       wSets: num(get(row, 'Wsets')),
       lSets: num(get(row, 'Lsets')),
       sets,
-      status: statusFromComment(get(row, 'Comment')),
+      status,
       odds,
       sourceKey,
     });
