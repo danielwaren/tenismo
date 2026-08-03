@@ -92,7 +92,17 @@ export function parseScoreboard(json: any, tour?: 'atp' | 'wta'): EspnTournament
         const homeName = home?.athlete?.fullName ?? home?.athlete?.displayName ?? '';
         const awayName = away?.athlete?.fullName ?? away?.athlete?.displayName ?? '';
         if (!homeName || !awayName) continue;
-        const state = (c.status?.type?.state ?? 'pre') as EspnState;
+        let state = (c.status?.type?.state ?? 'pre') as EspnState;
+        const homeScore = linescore(home);
+        const awayScore = linescore(away);
+        // ESPN a veces deja el estado en "pre" (con la hora programada) mucho
+        // después de que el partido arrancó — el marcador sí se actualiza en
+        // tiempo real, el campo de estado se queda atascado. Visto en vivo:
+        // varios partidos con un set completo (hasta con `winner:true`) y
+        // "Scheduled" a la vez. Si hay algún juego ya anotado, el partido está
+        // en curso lo diga o no `status.type.state`.
+        const yaEmpezo = (arr: number[] | null) => arr !== null && arr.some((n) => n > 0);
+        if (state === 'pre' && (yaEmpezo(homeScore) || yaEmpezo(awayScore))) state = 'in';
         matches.push({
           id: String(c.id),
           date: String(c.date ?? ev.date ?? ''),
@@ -101,8 +111,8 @@ export function parseScoreboard(json: any, tour?: 'atp' | 'wta'): EspnTournament
           homeName,
           awayName,
           homeWon: home?.winner === true ? true : away?.winner === true ? false : null,
-          homeScore: linescore(home),
-          awayScore: linescore(away),
+          homeScore,
+          awayScore,
         });
       }
     }

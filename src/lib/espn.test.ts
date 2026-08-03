@@ -100,6 +100,40 @@ describe('parseScoreboard', () => {
     expect(m2.homeWon).toBe(true);
   });
 
+  it('corrige a "in" un partido marcado "pre" que ya tiene marcador (bug visto en ESPN: el estado se queda atascado en "Scheduled" con el partido ya en curso)', () => {
+    const t = parseScoreboard({
+      events: [{
+        id: '200', name: 'Mubadala DC Open', season: { year: 2026 },
+        groupings: [{
+          grouping: { slug: 'womens-singles' },
+          competitions: [
+            {
+              id: '910', status: { type: { state: 'pre' } },
+              round: { displayName: 'Final' },
+              competitors: [
+                { homeAway: 'home', athlete: { fullName: 'Jessica Pegula' }, linescores: [{ value: 6, winner: true }, { value: 1 }] },
+                { homeAway: 'away', athlete: { fullName: 'Alexandra Eala' }, linescores: [{ value: 4 }, { value: 2 }] },
+              ],
+            },
+            {
+              // Genuinamente sin empezar: "pre" y sin ningún juego anotado —
+              // debe seguir "pre", no todo "pre" se corrige.
+              id: '911', status: { type: { state: 'pre' } },
+              round: { displayName: 'Final' },
+              competitors: [
+                { homeAway: 'home', athlete: { fullName: 'Taylor Fritz' }, linescores: [] },
+                { homeAway: 'away', athlete: { fullName: 'Rafael Jodar' }, linescores: [] },
+              ],
+            },
+          ],
+        }],
+      }],
+    }, 'wta');
+    const [live, notStarted] = t[0].matches;
+    expect(live.state).toBe('in');
+    expect(notStarted.state).toBe('pre');
+  });
+
   it('descarta competiciones que no son de dos jugadores', () => {
     const solo = { events: [{ id: '1', name: 'X', season: { year: 2026 },
       groupings: [{ grouping: { slug: 'mens-singles' }, competitions: [
