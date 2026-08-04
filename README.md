@@ -131,5 +131,25 @@ ganancia. Detalle en [docs/03-fase-1-5-modelo.md](docs/03-fase-1-5-modelo.md).
    guía. ✅
 4. **Calibración** — en buena parte resuelta ya en la 1.5; queda revisarla
    cuando haya muestra de partidos futuros reales.
+5. **Mis apuestas** — registro manual de las apuestas reales con caja propia,
+   y la card «Mi pronóstico» que contrasta modelo, IA y mercado. ✅
+
+## Mis apuestas (`/trading`)
+
+Registro **manual** de las apuestas que jugamos de verdad, con una caja
+independiente llevada por movimientos (nunca un saldo editable). No ejecuta
+apuestas ni se conecta a ninguna casa.
+
+No confundir con el **Paper Trading**, que simula con dinero ficticio lo que
+el *modelo* habría apostado: allí decide el modelo, aquí decides tú y la app
+solo lleva la contabilidad y compara.
+
+La card «Mi pronóstico» reutiliza el modelo que ya existe (Elo por superficie
++ motor Markov) y lo enfrenta a la cuota del mercado. Para mercados que el
+modelo no cubre —cualquiera de set, o Challenger/ITF— lo dice explícitamente
+en vez de estimar.
+
+Detalle completo, reglas contables y cómo conectar un proveedor de IA:
+[docs/11-mis-apuestas.md](docs/11-mis-apuestas.md).
 
 Puesta en producción (GitHub + Turso): [docs/02-git-y-turso.md](docs/02-git-y-turso.md).

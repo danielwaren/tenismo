@@ -12,3 +12,6 @@ data/*.db-*
 data/raw/
 
 .vercel
+
+# Configuración local de herramientas (launch.json del preview, etc.)
+.claude/

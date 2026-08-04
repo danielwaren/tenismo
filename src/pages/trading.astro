@@ -1,0 +1,48 @@
+---
+import Base from '../layouts/Base.astro';
+import TradingPage from '../components/bets/TradingPage.tsx';
+import { listBankrolls } from '../lib/bets';
+
+export const prerender = false;
+
+/**
+ * "Mis apuestas" — registro MANUAL de las apuestas reales que jugamos, con
+ * caja propia llevada por movimientos. Distinto de /paper-trading, que simula
+ * con dinero ficticio lo que el modelo habría apostado.
+ *
+ * La lista de bancas se resuelve en el servidor (la base no es accesible
+ * desde el navegador, ver src/lib/db.ts); el resto lo pide la isla por API.
+ */
+let bankrolls: { id: number; name: string }[] = [];
+let dbError: string | null = null;
+try {
+  bankrolls = (await listBankrolls()).map((b) => ({ id: b.id, name: b.name }));
+} catch (e) {
+  dbError = (e as Error).message;
+}
+---
+
+<Base
+  subtitle="Registro de las apuestas que jugamos de verdad, con caja propia e independiente de la casa. El modelo de Tenismo y un análisis de IA se comparan contra la cuota antes de entrar."
+  active="trading"
+>
+  {dbError ? (
+    <div class="rounded-lg border border-live/40 bg-live/10 p-4 text-sm text-live">
+      <p class="font-semibold">No se pudo consultar la base de datos.</p>
+      <p class="mt-1 text-2xs leading-relaxed">{dbError}</p>
+      <p class="mt-2 text-2xs leading-relaxed text-ink-muted">
+        Si es la primera vez que abres esta página, puede que falten las migraciones:
+        ejecuta <code class="font-mono">npm run db:migrate</code>.
+      </p>
+    </div>
+  ) : (
+    <>
+      <div class="mb-4 rounded-lg border border-line bg-surface-2/40 p-3 text-2xs leading-relaxed text-ink-muted">
+        Esta página <strong class="text-ink">no ejecuta apuestas ni se conecta a ninguna casa</strong>: es un
+        registro manual y una calculadora de caja. Las cuotas y el marcador en vivo se introducen a mano en
+        esta primera versión.
+      </div>
+      <TradingPage client:load initialBankrolls={bankrolls} />
+    </>
+  )}
+</Base>
