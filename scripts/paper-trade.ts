@@ -78,10 +78,11 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
     if (!(stake > 0.01)) return;
 
     stmts.push({
-      sql: `insert or ignore into paper_trades
+      sql: `insert into paper_trades
             (match_id, market, selection, line, bookmaker, odds_taken, implied_prob, model_prob, edge,
              confidence, stake, bankroll_before, model_version)
-            values (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict do nothing`,
       args: [
         matchId, market, mejor.sel, line, mejor.book, mejor.odds,
         Math.round(mejor.devigedProb * 1e4) / 1e4, Math.round(mejor.modelProb * 1e4) / 1e4,
@@ -280,7 +281,7 @@ async function liquidar(client: ReturnType<typeof db>, dryRun: boolean) {
 
     stmts.push({
       sql: `update paper_trades set status = ?, profit = ?, closing_odds = ?, clv = ?,
-            settled_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = ?`,
+            settled_at = iso_now() where id = ?`,
       args: [
         status, Math.round(profit * 100) / 100, closing,
         valorCierre === null ? null : Math.round(valorCierre * 1e4) / 1e4, Number(r.id),

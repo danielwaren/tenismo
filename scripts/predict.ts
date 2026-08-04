@@ -95,9 +95,10 @@ async function main() {
     ];
     const p = predictProb(x, model);
     return {
-      sql: `insert or replace into model_outputs
-            (match_id, model_version, prob_p1, prob_p2, confidence)
-            values (?, ?, ?, ?, ?)`,
+      sql: `insert into model_outputs (match_id, model_version, prob_p1, prob_p2, confidence)
+            values (?, ?, ?, ?, ?)
+            on conflict (match_id, model_version) do update set
+              prob_p1 = excluded.prob_p1, prob_p2 = excluded.prob_p2, confidence = excluded.confidence`,
       args: [
         Number(r.match_id), version,
         Math.round(p * 1e6) / 1e6, Math.round((1 - p) * 1e6) / 1e6,

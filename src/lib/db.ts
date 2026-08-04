@@ -1,32 +1,106 @@
-import { createClient, type Client } from '@libsql/client';
+import postgres from 'postgres';
 
 /**
- * Cliente libSQL — SOLO SERVIDOR.
+ * Cliente Postgres (Supabase) — SOLO SERVIDOR.
  *
- * Turso no tiene RLS: `TURSO_AUTH_TOKEN` da acceso total de lectura y escritura.
- * Por eso este módulo no debe importarse nunca desde un componente de React que
- * se hidrate en el cliente; las páginas Astro son SSR y las islas reciben los
- * datos ya resueltos como props. (En el proyecto de fútbol el navegador sí
- * hablaba con Supabase, pero allí la anon key estaba acotada por RLS.)
+ * Migrado desde Turso/libSQL (ago 2026): Turso bloqueó la cuenta por cuota de
+ * lecturas dos veces en dos días (500M filas/mes, límite duro). Supabase free
+ * no tiene ese tipo de tope — ver docs/12-migracion-supabase.md para el porqué
+ * completo y qué se evaluó antes (D1, Neon).
  *
- * La misma librería sirve para desarrollo y producción:
- *   file:./data/tennis.db          → SQLite local, sin cuenta ni token
- *   libsql://<bd>-<org>.turso.io   → Turso, con TURSO_AUTH_TOKEN
+ * COMPATIBILIDAD DELIBERADA: este módulo expone la MISMA forma que tenía
+ * @libsql/client — `execute()`/`batch()`/`transaction()`, con un `ResultSet`
+ * que da `rows`/`rowsAffected`/`lastInsertRowid` — para que las ~40 consultas
+ * ya escritas en el resto del proyecto seguuieran funcionando sin reescribir
+ * cada una. Por debajo usa `postgres.js` con `sql.unsafe()`, que acepta SQL
+ * con marcadores `$1,$2...`; aquí se traduce automáticamente desde el `?`
+ * posicional que usaba el código para SQLite/libSQL.
+ *
+ * Sin RLS: el control de acceso sigue viviendo en las rutas API de Astro,
+ * igual que con Turso — la contraseña de Postgres no sale del servidor.
  */
 
-const DEFAULT_LOCAL_URL = 'file:./data/tennis.db';
+// ── Tipos compatibles con @libsql/client (lo que el resto del proyecto espera) ──
+
+export interface ResultSet {
+  rows: Record<string, unknown>[];
+  rowsAffected: number;
+  lastInsertRowid?: number;
+}
+
+export type InArgs = unknown[];
+export type InStatement = string | { sql: string; args?: InArgs };
+
+export interface Transaction {
+  execute(stmt: InStatement): Promise<ResultSet>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
+export interface Client {
+  execute(stmt: InStatement): Promise<ResultSet>;
+  batch(stmts: { sql: string; args?: InArgs }[], mode?: 'write' | 'read'): Promise<ResultSet[]>;
+  transaction(mode?: 'write' | 'read'): Promise<Transaction>;
+}
+
+// ── Traducción SQLite/libSQL → Postgres ─────────────────────────────────────
+
+/** `?, ?, ?` posicional (SQLite) → `$1, $2, $3` (Postgres). No toca los `?` dentro de cadenas literales. */
+function toPositional(sqlText: string): string {
+  let i = 0;
+  let inStr = false;
+  let out = '';
+  for (let c = 0; c < sqlText.length; c++) {
+    const ch = sqlText[c];
+    if (ch === "'") inStr = !inStr;
+    if (ch === '?' && !inStr) { out += `$${++i}`; continue; }
+    out += ch;
+  }
+  return out;
+}
 
 /**
- * Puebla process.env desde .env si hace falta. Astro/Vite NO copia las variables
- * sin prefijo PUBLIC_ a process.env, así que en `astro dev` la app SSR no veía
- * TURSO_* y caía a la base local en silencio. Se hace aquí, en un módulo
- * solo-servidor, para que el secreto nunca entre en el bundle del cliente
- * (añadirlo al envPrefix de Vite lo expondría al navegador — justo lo que no se
- * quiere). En Vercel no hay .env y las variables ya están en process.env, así
- * que esto no hace nada.
+ * Un INSERT sencillo sin RETURNING se queda sin la id generada al volver —
+ * en libSQL eso lo daba `lastInsertRowid`. Se le añade `returning *`
+ * automáticamente (nunca `returning id`: hay tablas sin columna `id` —
+ * `app_config`, `tour_serve_stats`, `paper_trading_config`, todas con PK
+ * propia — y pedir esa columna ahí revienta con "column id does not
+ * exist"; `*` es válido pase lo que pase). `toResultSet` solo lee `.id` si
+ * de verdad vino en la fila.
  */
+function withAutoReturning(sqlText: string): { text: string; addedReturning: boolean } {
+  const trimmed = sqlText.trim();
+  const isPlainInsert = /^insert\s+into\s+/i.test(trimmed) && !/\breturning\b/i.test(trimmed);
+  if (!isPlainInsert) return { text: sqlText, addedReturning: false };
+  return { text: `${trimmed.replace(/;\s*$/, '')} returning *`, addedReturning: true };
+}
+
+function toResultSet(raw: postgres.RowList<postgres.Row[]>, addedReturning: boolean): ResultSet {
+  const rows = Array.from(raw) as Record<string, unknown>[];
+  const rowsAffected = typeof raw.count === 'number' ? raw.count : rows.length;
+  const lastInsertRowid =
+    addedReturning && rows.length && rows[0].id !== undefined ? Number(rows[0].id as never) : undefined;
+  return { rows, rowsAffected, lastInsertRowid };
+}
+
+function normalize(stmt: InStatement): { sql: string; args: InArgs } {
+  return typeof stmt === 'string' ? { sql: stmt, args: [] } : { sql: stmt.sql, args: stmt.args ?? [] };
+}
+
+async function runOne(
+  exec: (text: string, args: InArgs) => Promise<postgres.RowList<postgres.Row[]>>,
+  stmt: InStatement,
+): Promise<ResultSet> {
+  const { sql: raw, args } = normalize(stmt);
+  const { text, addedReturning } = withAutoReturning(raw);
+  const result = await exec(toPositional(text), args);
+  return toResultSet(result, addedReturning);
+}
+
+// ── Cliente ──────────────────────────────────────────────────────────────────
+
 function ensureEnvLoaded(): void {
-  if (process.env.TURSO_DATABASE_URL) return;
+  if (process.env.SUPABASE_DB_HOST) return;
   const loader = (process as unknown as { loadEnvFile?: (p?: string) => void }).loadEnvFile;
   if (typeof loader !== 'function') return;
   try {
@@ -36,40 +110,86 @@ function ensureEnvLoaded(): void {
   }
 }
 
+let sqlClient: postgres.Sql | null = null;
 let client: Client | null = null;
+
+function getSql(): postgres.Sql {
+  if (sqlClient) return sqlClient;
+  ensureEnvLoaded();
+
+  const host = process.env.SUPABASE_DB_HOST;
+  if (!host) {
+    throw new Error(
+      'SUPABASE_DB_HOST no está definida. Hacen falta SUPABASE_DB_HOST/PORT/NAME/USER/PASSWORD ' +
+        '(ver .env.example) — no hay base local de respaldo con Postgres.',
+    );
+  }
+
+  sqlClient = postgres({
+    host,
+    port: Number(process.env.SUPABASE_DB_PORT ?? 6543),
+    database: process.env.SUPABASE_DB_NAME ?? 'postgres',
+    username: process.env.SUPABASE_DB_USER,
+    password: process.env.SUPABASE_DB_PASSWORD,
+    ssl: 'require',
+    // El pooler de Supabase en modo transacción no soporta prepared statements
+    // persistentes entre conexiones — cada `.unsafe()` ya es un statement suelto.
+    prepare: false,
+  });
+  return sqlClient;
+}
 
 export function db(): Client {
   if (client) return client;
+  const sql = getSql();
 
-  ensureEnvLoaded();
-  const fromEnv = process.env.TURSO_DATABASE_URL;
-  const url = fromEnv ?? DEFAULT_LOCAL_URL;
-  const authToken = process.env.TURSO_AUTH_TOKEN || undefined;
+  client = {
+    async execute(stmt) {
+      return runOne((text, args) => sql.unsafe(text, args as postgres.ParameterOrJSON<never>[]), stmt);
+    },
 
-  // Sin este aviso, un script que olvide cargar el .env cae a la base LOCAL sin
-  // decir nada: crees estar consultando Turso y estás leyendo una copia vieja.
-  // Pasó de verdad — un diagnóstico dio por perdidas unas filas que sí estaban
-  // en producción. Un default silencioso que apunta a otra base es peor que un
-  // error.
-  if (!fromEnv) {
-    console.warn(
-      `[db] TURSO_DATABASE_URL no está definida: usando la base LOCAL (${DEFAULT_LOCAL_URL}). ` +
-        'Si esperabas Turso, falta cargar el .env (loadEnv) o exportar la variable.',
-    );
-  }
+    async batch(stmts, _mode) {
+      return sql.begin(async (tx) => {
+        const out: ResultSet[] = [];
+        for (const s of stmts) {
+          out.push(await runOne((text, args) => tx.unsafe(text, args as postgres.ParameterOrJSON<never>[]), s));
+        }
+        return out;
+      });
+    },
 
-  if (url.startsWith('libsql://') && !authToken) {
-    throw new Error(
-      'TURSO_DATABASE_URL apunta a Turso pero falta TURSO_AUTH_TOKEN. ' +
-        'Para trabajar sin cuenta, usa file:./data/tennis.db',
-    );
-  }
-
-  client = createClient({ url, authToken });
+    async transaction(_mode) {
+      const conn = await sql.reserve();
+      await conn.unsafe('BEGIN');
+      let closed = false;
+      return {
+        async execute(stmt) {
+          if (closed) throw new Error('Transacción ya cerrada (commit/rollback).');
+          return runOne((text, args) => conn.unsafe(text, args as postgres.ParameterOrJSON<never>[]), stmt);
+        },
+        async commit() {
+          if (closed) return;
+          closed = true;
+          await conn.unsafe('COMMIT');
+          conn.release();
+        },
+        async rollback() {
+          if (closed) return;
+          closed = true;
+          await conn.unsafe('ROLLBACK');
+          conn.release();
+        },
+      };
+    },
+  };
   return client;
 }
 
-/** ¿Estamos contra el fichero local en vez de Turso? (útil para mensajes). */
+/**
+ * ¿Faltan credenciales reales? (diagnóstico — antes distinguía Turso local de
+ * remoto; con Postgres no hay "base local de fichero", así que aquí solo
+ * avisa de configuración incompleta).
+ */
 export function isLocalDb(): boolean {
-  return (process.env.TURSO_DATABASE_URL ?? 'file:').startsWith('file:');
+  return !process.env.SUPABASE_DB_HOST;
 }

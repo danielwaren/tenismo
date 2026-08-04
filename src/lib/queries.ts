@@ -176,7 +176,7 @@ export async function getUpcomingMatches(limit = 40): Promise<MatchRow[]> {
   const c = db();
   const version = await getModelVersion();
   const res = await c.execute({
-    sql: `${MATCH_SELECT} where m.status = 'scheduled' and m.played_on >= date('now', '-1 day')
+    sql: `${MATCH_SELECT} where m.status = 'scheduled' and m.played_on::date >= current_date - 1
           order by
             case m.round
               when 'The Final' then 0
@@ -483,7 +483,7 @@ function mapTournament(r: Record<string, unknown>): TournamentCard {
 }
 
 const TOURNAMENT_SELECT = `
-  select tr.id, t.code as tour, tr.name, tr.season, tr.surface, tr.series,
+  select tr.id, max(t.code) as tour, tr.name, tr.season, tr.surface, tr.series,
          count(m.id) as matches,
          sum(case when m.status = 'completed' then 1 else 0 end) as played,
          sum(case when m.status = 'scheduled' then 1 else 0 end) as scheduled,
@@ -519,12 +519,12 @@ export async function getUpcomingTournaments(limit = 12): Promise<TournamentCard
     sql: `${TOURNAMENT_SELECT}
           where tr.id in (
             select tournament_id from matches
-            where status = 'scheduled' and played_on >= date('now', '-1 day')
+            where status = 'scheduled' and played_on::date >= current_date - 1
           )
           group by tr.id
           order by (
             select min(played_on) from matches
-            where tournament_id = tr.id and status = 'scheduled' and played_on >= date('now', '-1 day')
+            where tournament_id = tr.id and status = 'scheduled' and played_on::date >= current_date - 1
           ) asc
           limit ?`,
     args: [limit],

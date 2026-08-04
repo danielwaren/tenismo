@@ -110,7 +110,7 @@ async function main() {
   }
   await runBatch(
     [...players.values()].map((p) => ({
-      sql: 'insert or ignore into players (tour_id, name, slug) values (?, ?, ?)',
+      sql: 'insert into players (tour_id, name, slug) values (?, ?, ?) on conflict do nothing',
       args: [tourIds.get(p.tour)!, p.name, p.slug],
     })),
     'jugadores',
@@ -130,8 +130,9 @@ async function main() {
   }
   await runBatch(
     [...tournaments.values()].map((m) => ({
-      sql: `insert or ignore into tournaments (tour_id, season, name, location, series, surface, court)
-            values (?, ?, ?, ?, ?, ?, ?)`,
+      sql: `insert into tournaments (tour_id, season, name, location, series, surface, court)
+            values (?, ?, ?, ?, ?, ?, ?)
+            on conflict do nothing`,
       args: [tourIds.get(m.tour)!, m.season, m.tournament, m.location, m.series, m.surface, m.court],
     })),
     'torneos',

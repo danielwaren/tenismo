@@ -363,11 +363,19 @@ async function main() {
     };
     const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
     featureStmts.push({
-      sql: `insert or replace into match_features
+      sql: `insert into match_features
             (match_id, elo_diff_surface, elo_diff_overall, rank_log_diff, points_log_diff,
              h2h, h2h_surface, load_diff, intensity_diff, rest_diff, form_diff, exp_diff,
              surface_exp_diff, best_of5_elo_diff, markov_logit)
-            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict (match_id) do update set
+              elo_diff_surface = excluded.elo_diff_surface, elo_diff_overall = excluded.elo_diff_overall,
+              rank_log_diff = excluded.rank_log_diff, points_log_diff = excluded.points_log_diff,
+              h2h = excluded.h2h, h2h_surface = excluded.h2h_surface,
+              load_diff = excluded.load_diff, intensity_diff = excluded.intensity_diff,
+              rest_diff = excluded.rest_diff, form_diff = excluded.form_diff, exp_diff = excluded.exp_diff,
+              surface_exp_diff = excluded.surface_exp_diff, best_of5_elo_diff = excluded.best_of5_elo_diff,
+              markov_logit = excluded.markov_logit`,
       args: [
         matchId, r4(feats.eloDiffSurface), r4(feats.eloDiffOverall), r4(feats.rankLogDiff),
         r4(feats.pointsLogDiff), r4(feats.h2h), r4(feats.h2hSurface), r4(feats.loadDiff),
@@ -383,9 +391,11 @@ async function main() {
       p2: { overall: b.all, surface: b.surf },
     });
     predictionStmts.push({
-      sql: `insert or replace into model_outputs
-            (match_id, model_version, prob_p1, prob_p2, confidence, explanation)
-            values (?, ?, ?, ?, ?, ?)`,
+      sql: `insert into model_outputs (match_id, model_version, prob_p1, prob_p2, confidence, explanation)
+            values (?, ?, ?, ?, ?, ?)
+            on conflict (match_id, model_version) do update set
+              prob_p1 = excluded.prob_p1, prob_p2 = excluded.prob_p2,
+              confidence = excluded.confidence, explanation = excluded.explanation`,
       args: [
         matchId, modelVersion,
         Math.round(pred.probP1 * 1e6) / 1e6,
@@ -522,11 +532,19 @@ async function main() {
     );
 
     featureStmts.push({
-      sql: `insert or replace into match_features
+      sql: `insert into match_features
             (match_id, elo_diff_surface, elo_diff_overall, rank_log_diff, points_log_diff,
              h2h, h2h_surface, load_diff, intensity_diff, rest_diff, form_diff, exp_diff,
              surface_exp_diff, best_of5_elo_diff, markov_logit)
-            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict (match_id) do update set
+              elo_diff_surface = excluded.elo_diff_surface, elo_diff_overall = excluded.elo_diff_overall,
+              rank_log_diff = excluded.rank_log_diff, points_log_diff = excluded.points_log_diff,
+              h2h = excluded.h2h, h2h_surface = excluded.h2h_surface,
+              load_diff = excluded.load_diff, intensity_diff = excluded.intensity_diff,
+              rest_diff = excluded.rest_diff, form_diff = excluded.form_diff, exp_diff = excluded.exp_diff,
+              surface_exp_diff = excluded.surface_exp_diff, best_of5_elo_diff = excluded.best_of5_elo_diff,
+              markov_logit = excluded.markov_logit`,
       args: [
         matchId, r4(eloDiffSurface), r4((a.all.elo - b.all.elo) / 400),
         r4(rankLogDiff(r1.rank, r2.rank)), r4(pointsLogDiff(r1.points, r2.points)),
@@ -547,9 +565,11 @@ async function main() {
       p2: { overall: b.all, surface: b.surf },
     });
     predictionStmts.push({
-      sql: `insert or replace into model_outputs
-            (match_id, model_version, prob_p1, prob_p2, confidence, explanation)
-            values (?, ?, ?, ?, ?, ?)`,
+      sql: `insert into model_outputs (match_id, model_version, prob_p1, prob_p2, confidence, explanation)
+            values (?, ?, ?, ?, ?, ?)
+            on conflict (match_id, model_version) do update set
+              prob_p1 = excluded.prob_p1, prob_p2 = excluded.prob_p2,
+              confidence = excluded.confidence, explanation = excluded.explanation`,
       args: [
         matchId, modelVersion, Math.round(pred.probP1 * 1e6) / 1e6,
         Math.round(pred.probP2 * 1e6) / 1e6, pred.confidence, JSON.stringify(pred.reasons),
@@ -571,7 +591,7 @@ async function main() {
     const push = (scope: string, r: Rating) =>
       ratingStmts.push({
         sql: `insert into player_ratings (player_id, surface, elo, matches, updated_at)
-              values (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+              values (?, ?, ?, ?, iso_now())
               on conflict (player_id, surface) do update set
                 elo = excluded.elo, matches = excluded.matches, updated_at = excluded.updated_at`,
         args: [pid, scope, Math.round(r.elo * 100) / 100, r.matches],
@@ -589,7 +609,7 @@ async function main() {
     serveStmts.push({
       sql: `insert into player_serve_stats
               (player_id, serve_won, serve_points, return_won, return_points, updated_at)
-            values (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            values (?, ?, ?, ?, ?, iso_now())
             on conflict (player_id) do update set
               serve_won = excluded.serve_won, serve_points = excluded.serve_points,
               return_won = excluded.return_won, return_points = excluded.return_points,

@@ -114,7 +114,7 @@ async function main() {
         unmatchedStmts.push({
           sql: `insert into unmatched_events (event_id, sport_key, home_team, away_team, commence_at, reason)
                 values (?,?,?,?,?,?)
-                on conflict (source, event_id) do update set reason = excluded.reason, seen_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+                on conflict (source, event_id) do update set reason = excluded.reason, seen_at = iso_now()`,
           args: [ev.id, sport.key, ev.home_team, ev.away_team, ev.commence_time, motivo],
         });
         continue;
@@ -135,8 +135,9 @@ async function main() {
       const nombre = tournamentNameFromKey(sport.key, sport.title);
 
       matchStmts.push({
-        sql: `insert or ignore into tournaments (tour_id, season, name, location, series, surface, court)
-              values (?,?,?,?,?,?,?)`,
+        sql: `insert into tournaments (tour_id, season, name, location, series, surface, court)
+              values (?,?,?,?,?,?,?)
+              on conflict do nothing`,
         args: [tourIds.get(tour)!, season, nombre, null, info?.series ?? null, info?.surface ?? null, info?.court ?? null],
       });
       matchStmts.push({
@@ -215,9 +216,10 @@ async function main() {
     ] as const) {
       if (!(valor > 1)) continue;
       oddsStmts.push({
-        sql: `insert or ignore into odds
+        sql: `insert into odds
               (match_id, source, bookmaker, market, selection, odds, implied_prob, is_closing, captured_at)
-              values (?, 'the-odds-api', ?, 'match_winner', ?, ?, ?, 0, ?)`,
+              values (?, 'the-odds-api', ?, 'match_winner', ?, ?, ?, 0, ?)
+              on conflict do nothing`,
         args: [matchId, bookmaker, p.sel, Math.round(valor * 100) / 100,
           Math.round((1 / valor) * 10000) / 10000, capturedAt],
       });
@@ -229,9 +231,10 @@ async function main() {
   ) => {
     if (!(valor > 1)) return;
     oddsStmts.push({
-      sql: `insert or ignore into odds
+      sql: `insert into odds
             (match_id, source, bookmaker, market, selection, odds, implied_prob, is_closing, captured_at, line)
-            values (?, 'the-odds-api', ?, ?, ?, ?, ?, 0, ?, ?)`,
+            values (?, 'the-odds-api', ?, ?, ?, ?, ?, 0, ?, ?)
+            on conflict do nothing`,
       args: [
         matchId, bookmaker, market, selection, Math.round(valor * 100) / 100,
         Math.round((1 / valor) * 10000) / 10000, capturedAt, line,

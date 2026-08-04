@@ -1,4 +1,4 @@
-import type { Client } from '@libsql/client';
+import type { Client } from '../../src/lib/db';
 
 /**
  * Ejecución de sentencias en lotes, con reintentos.

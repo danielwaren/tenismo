@@ -177,7 +177,7 @@ function upsertTaMatch(e: { m: TaMatch; sides: number; conflict: boolean }, aId:
             sides_seen   = max(ta_matches.sides_seen, excluded.sides_seen),
             conflict     = max(ta_matches.conflict, excluded.conflict),
             mcp_chart_id = coalesce(excluded.mcp_chart_id, ta_matches.mcp_chart_id),
-            updated_at   = strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+            updated_at   = iso_now()`,
     args: [
       m.key, 'ATP', m.eventDate, m.event, m.level, m.surface, m.round, m.bestOf, m.score, m.minutes,
       m.a.slug, m.a.fullName, aId, m.a.rank, m.b.slug, m.b.fullName, bId, m.b.rank, m.winnerSlug,
@@ -438,7 +438,7 @@ async function main() {
       if (playerId) {
         playerStmts.push({
           sql: `insert into ta_players (player_id, ta_name, full_name, ta_id, last_fetched_at, last_match_date, matches_seen, status)
-                values (?,?,?,?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?, ?, 'ok')
+                values (?,?,?,?, iso_now(), ?, ?, 'ok')
                 on conflict (player_id) do update set
                   ta_name=excluded.ta_name, full_name=excluded.full_name,
                   ta_id=coalesce(excluded.ta_id, ta_players.ta_id),

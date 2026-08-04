@@ -21,9 +21,9 @@ name: Estadisticas Tennis Abstract
 # tiempo del job: 120 fichas ≈ 12 min. No subir el ritmo "para ir más rápido";
 # es exactamente lo que provoca el bloqueo.
 #
-# Secrets necesarios en el repositorio:
-#   TURSO_DATABASE_URL   libsql://<bd>-<org>.turso.io
-#   TURSO_AUTH_TOKEN     token de Turso (acceso total: no hay RLS)
+# Secrets necesarios en el repositorio (Supabase/Postgres, migrado ago 2026):
+#   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME,
+#   SUPABASE_DB_USER, SUPABASE_DB_PASSWORD — ver docs/12-migracion-supabase.md
 
 on:
   schedule:
@@ -52,8 +52,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
+      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
+      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
+      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,12 +68,11 @@ jobs:
       - run: npm ci
 
       - name: Comprobar que hay base configurada
-        # Sin esto, `db()` cae en silencio al fichero local del runner: el job
-        # terminaría en verde habiendo escrito en una base que se borra al
-        # acabar. Un default silencioso que apunta a otra base no falla, miente.
+        # Sin esto, `db()` revienta con un error confuso a mitad del job. Un
+        # default silencioso que apunta a otra base no falla, miente.
         run: |
-          if [ -z "$TURSO_DATABASE_URL" ]; then
-            echo "Falta el secret TURSO_DATABASE_URL." >&2
+          if [ -z "$SUPABASE_DB_HOST" ]; then
+            echo "Falta el secret SUPABASE_DB_HOST." >&2
             exit 1
           fi
 

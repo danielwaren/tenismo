@@ -138,8 +138,9 @@ async function main() {
         // por token compartido con otro torneo de la temporada): el select de
         // abajo recupera igual el id correcto, enlazado o recién creado.
         await client.execute({
-          sql: `insert or ignore into tournaments (tour_id, season, name, surface, court)
-                values (?, ?, ?, ?, ?)`,
+          sql: `insert into tournaments (tour_id, season, name, surface, court)
+                values (?, ?, ?, ?, ?)
+                on conflict do nothing`,
           args: [tourId, t.season, t.name, surface, null],
         });
         tournamentId = Number((await client.execute({
@@ -192,7 +193,7 @@ async function main() {
         // tennis-data (que es la fuente autorizada: si ya está, no se duplica).
         const existente = (await client.execute({
           sql: `select id, source, status from matches where tour_id = ?
-                  and p1_id = ? and p2_id = ? and abs(julianday(played_on) - julianday(?)) <= 3
+                  and p1_id = ? and p2_id = ? and abs(played_on::date - ?::date) <= 3
                 order by case when source = 'tennis-data' then 0 else 1 end limit 1`,
           args: [tourId, p1, p2, playedOn],
         })).rows[0];
@@ -248,7 +249,7 @@ async function main() {
           const scoreP2 = p1IsHome ? fmt(m.awayScore) : fmt(m.homeScore);
           liveStmts.push({
             sql: `insert into live_scores (match_id, event_id, state, score_p1, score_p2, updated_at)
-                  values (?, ?, 'live', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                  values (?, ?, 'live', ?, ?, iso_now())
                   on conflict (match_id) do update set
                     score_p1 = excluded.score_p1, score_p2 = excluded.score_p2,
                     state = 'live', updated_at = excluded.updated_at`,

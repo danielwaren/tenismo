@@ -134,7 +134,7 @@ async function main() {
     const candidatos = (await client.execute({
       sql: `select id, played_on from matches
             where status = 'completed' and tour_id = ? and p1_id = ? and p2_id = ?
-              and abs(julianday(played_on) - julianday(?)) <= 3`,
+              and abs(played_on::date - ?::date) <= 3`,
       args: [Number(p.tour_id), Number(p.p1_id), Number(p.p2_id), String(p.played_on)],
     })).rows;
 
@@ -168,7 +168,7 @@ async function main() {
     from matches e
     join matches td on td.source = 'tennis-data' and td.status = 'completed'
       and td.tour_id = e.tour_id and td.p1_id = e.p1_id and td.p2_id = e.p2_id
-      and abs(julianday(td.played_on) - julianday(e.played_on)) <= 3
+      and abs(td.played_on::date - e.played_on::date) <= 3
     where e.source = 'espn' and e.status = 'completed'
   `)).rows;
   for (const r of espnDup) {

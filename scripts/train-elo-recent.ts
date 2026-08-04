@@ -44,7 +44,7 @@ async function main() {
     from matches m
     join tournaments tr on tr.id = m.tournament_id
     where m.status = 'completed' and m.p1_won is not null and m.source = 'tennis-data'
-      and m.played_on >= date('now', '-${WINDOW_YEARS} years')
+      and m.played_on::date >= (current_date - interval '${WINDOW_YEARS} years')::date
     order by m.played_on, m.id
   `);
   console.log(`Partidos en la ventana de ${WINDOW_YEARS} años: ${pending.rows.length}`);
@@ -84,7 +84,7 @@ async function main() {
   for (const [pid, r] of state) {
     stmts.push({
       sql: `insert into player_ratings (player_id, surface, elo, matches, updated_at)
-            values (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+            values (?, ?, ?, ?, iso_now())`,
       args: [pid, RECENT_SCOPE, Math.round(r.elo * 100) / 100, r.matches],
     });
   }

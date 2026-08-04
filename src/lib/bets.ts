@@ -221,7 +221,7 @@ export async function getBankrollSummary(bankrollId: number): Promise<BankrollSu
     // "Hoy" en UTC (played_on/placed_at ya se guardan en UTC en todo el proyecto).
     c.execute({
       sql: `select coalesce(sum(profit), 0) p from bets
-            where bankroll_id = ? and status <> 'OPEN' and settled_at >= date('now')`,
+            where bankroll_id = ? and status <> 'OPEN' and settled_at >= to_char(current_date, 'YYYY-MM-DD')`,
       args: [bankrollId],
     }),
   ]);
@@ -392,7 +392,7 @@ export async function getBet(id: number): Promise<BetRecord | null> {
 export async function updateBetNotes(id: number, notes: string): Promise<void> {
   const c = db();
   await c.execute({
-    sql: `update bets set notes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') where id = ?`,
+    sql: `update bets set notes = ?, updated_at = iso_now() where id = ?`,
     args: [notes, id],
   });
 }
@@ -439,9 +439,9 @@ export async function settleBet(
     // si otra petición ya liquidó esta apuesta entre el SELECT de arriba y
     // este UPDATE, rowsAffected sale en 0 y se aborta.
     const upd = await tx.execute({
-      sql: `update bets set status = ?, settled_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+      sql: `update bets set status = ?, settled_at = iso_now(),
               payout = ?, profit = ?, cashout_amount = ?,
-              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+              updated_at = iso_now()
             where id = ? and status = 'OPEN'`,
       args: [result.status, result.payout, result.profit, outcome === 'CASHOUT' ? extra!.cashoutAmount! : null, id],
     });
@@ -510,23 +510,29 @@ export async function getDailySummary(bankrollId: number, date: string): Promise
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BetValidationError('Fecha inválida (se espera YYYY-MM-DD).');
   const c = db();
 
+  const dayStart = `${date}T00:00:00.000Z`;
+  // "date + 1 día" calculado en JS: created_at/placed_at son TEXT ISO, así que
+  // comparar contra otro TEXT evita depender de la aritmética de fechas de un
+  // motor u otro (date('now','+1 day') era SQLite; esto es agnóstico).
+  const nextDayStart = `${new Date(new Date(dayStart).getTime() + 86_400_000).toISOString().slice(0, 10)}T00:00:00.000Z`;
+
   const [beforeRow, movRes, betsRes, currentRow] = await Promise.all([
     c.execute({
       sql: `select coalesce(sum(amount), 0) b from bankroll_transactions
             where bankroll_id = ? and created_at < ?`,
-      args: [bankrollId, `${date}T00:00:00.000Z`],
+      args: [bankrollId, dayStart],
     }),
     c.execute({
       sql: `select type, sum(amount) s from bankroll_transactions
-            where bankroll_id = ? and created_at >= ? and created_at < date(?, '+1 day')
+            where bankroll_id = ? and created_at >= ? and created_at < ?
             group by type`,
-      args: [bankrollId, `${date}T00:00:00.000Z`, date],
+      args: [bankrollId, dayStart, nextDayStart],
     }),
     c.execute({
       sql: `select status, count(*) n, coalesce(sum(stake),0) stake, coalesce(sum(profit),0) profit
-            from bets where bankroll_id = ? and placed_at >= ? and placed_at < date(?, '+1 day')
+            from bets where bankroll_id = ? and placed_at >= ? and placed_at < ?
             group by status`,
-      args: [bankrollId, `${date}T00:00:00.000Z`, date],
+      args: [bankrollId, dayStart, nextDayStart],
     }),
     c.execute({
       sql: `select coalesce(sum(amount), 0) b from bankroll_transactions where bankroll_id = ?`,
@@ -552,8 +558,8 @@ export async function getDailySummary(bankrollId: number, date: string): Promise
   const pendingRow = (
     await c.execute({
       sql: `select count(*) n from bets where bankroll_id = ? and status = 'OPEN'
-            and placed_at >= ? and placed_at < date(?, '+1 day')`,
-      args: [bankrollId, `${date}T00:00:00.000Z`, date],
+            and placed_at >= ? and placed_at < ?`,
+      args: [bankrollId, dayStart, nextDayStart],
     })
   ).rows[0];
 

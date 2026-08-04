@@ -1,16 +1,17 @@
 name: Ingesta diaria
 
-# Turso es SOLO base de datos: no tiene pg_cron ni Edge Functions, así que el
-# trabajo programado vive aquí y no dentro de la base (en el proyecto de fútbol
-# lo hacía pg_cron + pg_net dentro de Supabase).
+# Postgres/Supabase (migrado desde Turso ago 2026, ver
+# docs/12-migracion-supabase.md): no tiene pg_cron habilitado para este
+# proyecto ni Edge Functions propias aquí, así que el trabajo programado sigue
+# viviendo en GitHub Actions, no en la base.
 #
 # Se eligió GitHub Actions en vez de Vercel Cron porque este job descarga los
 # ficheros de la temporada, parsea miles de partidos y reentrena el Elo: no cabe
 # en el límite de tiempo de una función serverless del plan Hobby.
 #
 # Secrets necesarios en el repositorio:
-#   TURSO_DATABASE_URL   libsql://<bd>-<org>.turso.io
-#   TURSO_AUTH_TOKEN     token de Turso (acceso total: no hay RLS)
+#   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME,
+#   SUPABASE_DB_USER, SUPABASE_DB_PASSWORD (sin RLS: acceso total)
 
 on:
   schedule:
@@ -25,7 +26,7 @@ on:
 
 concurrency:
   # Dos ingestas simultáneas escribirían el Elo a la vez: se serializan.
-  group: ingesta-turso
+  group: ingesta-supabase
   cancel-in-progress: false
 
 jobs:
@@ -33,8 +34,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
+      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
+      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
+      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,8 +51,8 @@ jobs:
 
       - name: Comprobar que hay base configurada
         run: |
-          if [ -z "$TURSO_DATABASE_URL" ]; then
-            echo "Falta el secret TURSO_DATABASE_URL." >&2
+          if [ -z "$SUPABASE_DB_HOST" ]; then
+            echo "Falta el secret SUPABASE_DB_HOST." >&2
             exit 1
           fi
 

@@ -112,7 +112,7 @@ async function loadLive(): Promise<LiveMatchRow[]> {
               join players p2 on p2.id = m.p2_id
               left join model_outputs mo on mo.match_id = m.id and mo.model_version = ?
               where m.p1_id = ? and m.p2_id = ?
-                and abs(julianday(m.played_on) - julianday('now')) <= 3
+                and abs(m.played_on::date - current_date) <= 3
               order by case when m.status = 'scheduled' then 0 else 1 end limit 1`,
         args: [version, p1, p2],
       })).rows[0];
@@ -155,7 +155,7 @@ async function loadLive(): Promise<LiveMatchRow[]> {
     // Se persiste para que los contadores "en vivo" de los torneos cuadren.
     await c.execute({
       sql: `insert into live_scores (match_id, event_id, state, score_p1, score_p2, updated_at)
-            values (?, ?, 'live', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            values (?, ?, 'live', ?, ?, iso_now())
             on conflict (match_id) do update set
               score_p1 = excluded.score_p1, score_p2 = excluded.score_p2,
               state = 'live', updated_at = excluded.updated_at`,
