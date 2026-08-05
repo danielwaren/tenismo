@@ -39,6 +39,19 @@ import {
 loadEnv();
 
 const CHUNK = 400;
+/**
+ * SQL de `rating_history`, en una constante compartida entre el bucle de
+ * partidos reales y el de Challenger/TA (más abajo) para que sea EXACTAMENTE
+ * el mismo texto byte a byte — coalesceInserts (scripts/lib/batch.ts) solo
+ * agrupa sentencias consecutivas con el SQL idéntico, y estos dos bucles se
+ * intercalan por fecha en un --reset. Con dos textos distintos (uno con
+ * `match_id` como parámetro y otro con el literal `null`, y encima con
+ * distinta indentación) cada cambio de tipo de evento cortaba el grupo: medido
+ * en producción, ~4 filas/segundo en vez de las ~1.300/segundo de un lote
+ * agrupado — a ese ritmo, cientos de miles de filas son horas, no minutos.
+ */
+const RATING_HISTORY_SQL =
+  'insert into rating_history (player_id, surface, match_id, elo_before, elo_after, played_on) values (?, ?, ?, ?, ?, ?)';
 /** Partidos recientes que se conservan por jugador (suficiente para fatiga y forma). */
 const HISTORY_KEEP = 30;
 /** Versión bajo la que se guarda la predicción de Elo puro (línea base). */
@@ -291,9 +304,8 @@ async function main() {
 
       const hist = (pid: number, scope: string, before: number, after: number) =>
         historyStmts.push({
-          sql: `insert into rating_history (player_id, surface, match_id, elo_before, elo_after, played_on)
-                values (?, ?, null, ?, ?, ?)`,
-          args: [pid, scope, Math.round(before * 100) / 100, Math.round(after * 100) / 100, playedOn],
+          sql: RATING_HISTORY_SQL,
+          args: [pid, scope, null, Math.round(before * 100) / 100, Math.round(after * 100) / 100, playedOn],
         });
       hist(p1, 'all', beforeAll1, next.p1Overall.elo);
       hist(p2, 'all', beforeAll2, next.p2Overall.elo);
