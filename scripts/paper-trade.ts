@@ -108,7 +108,7 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       join odds ex2 on ex2.match_id = m.id and ex2.selection='p2' and ex2.bookmaker = ? and ex2.market='match_winner'
       left join paper_trades pt on pt.match_id = m.id and pt.market = 'ML'
       where m.status = 'scheduled' and pt.id is null
-      group by m.id
+      group by m.id, m.played_on, mo.prob_p1, mo.confidence, fair1.odds, fair2.odds, ex1.odds, ex2.odds, ex1.bookmaker
       order by m.played_on
     `,
     args: [version, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK],
@@ -154,7 +154,10 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       left join paper_trades pth on pth.match_id = m.id and pth.market = 'GAMES_HCP'
       where m.status = 'scheduled' and (tf1.id is not null or hf1.id is not null)
         and (ptt.id is null or pth.id is null)
-      group by m.id
+      group by m.id, m.played_on, m.best_of, mo.confidence,
+               tf1.odds, tf2.odds, tf1.line, tx1.odds, tx2.odds, tx1.bookmaker,
+               hf1.odds, hf2.odds, hf1.line, hx1.odds, hx2.odds, hx1.bookmaker,
+               ptt.id, pth.id
       order by m.played_on
     `,
     args: [version, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK],
