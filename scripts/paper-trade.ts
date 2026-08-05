@@ -322,9 +322,14 @@ async function resumen(client: ReturnType<typeof db>) {
            sum(case when status='open' then 1 else 0 end) abiertas,
            sum(case when status='won' then 1 else 0 end) ganadas,
            sum(case when status='lost' then 1 else 0 end) perdidas,
-           round(sum(coalesce(profit,0)),2) beneficio,
-           round(sum(case when status in ('won','lost') then stake else 0 end),2) arriesgado,
-           round(avg(clv),4) clv_medio,
+           -- Los ::numeric son obligatorios: en Postgres round(x, n) solo
+           -- existe para numeric, no para double precision (que es el tipo de
+           -- profit/stake/clv). SQLite lo aceptaba y esto reventaba el resumen
+           -- final con "function round(double precision, integer) does not
+           -- exist" DESPUÉS de haber liquidado las apuestas.
+           round(sum(coalesce(profit,0))::numeric,2) beneficio,
+           round(sum(case when status in ('won','lost') then stake else 0 end)::numeric,2) arriesgado,
+           round(avg(clv)::numeric,4) clv_medio,
            sum(case when clv > 0 then 1 else 0 end) clv_positivo,
            sum(case when clv is not null then 1 else 0 end) clv_medidos
     from paper_trades
@@ -347,8 +352,8 @@ async function resumen(client: ReturnType<typeof db>) {
            sum(case when status='won' then 1 else 0 end) ganadas,
            sum(case when status='lost' then 1 else 0 end) perdidas,
            sum(case when status='void' then 1 else 0 end) push,
-           round(sum(coalesce(profit,0)),2) beneficio,
-           round(avg(clv),4) clv_medio
+           round(sum(coalesce(profit,0))::numeric,2) beneficio,
+           round(avg(clv)::numeric,4) clv_medio
     from paper_trades group by market order by market
   `)).rows;
   if (porMercado.length > 1) {
