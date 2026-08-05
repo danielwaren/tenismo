@@ -135,6 +135,16 @@ function getSql(): postgres.Sql {
     // El pooler de Supabase en modo transacción no soporta prepared statements
     // persistentes entre conexiones — cada `.unsafe()` ya es un statement suelto.
     prepare: false,
+    // Sin esto, el socket queda abierto indefinidamente y ningún script de
+    // scripts/*.ts termina solo tras su último query — process.exit(1) solo
+    // se llama en el catch de error, nunca al terminar bien. Así estuvieron
+    // TODOS los workflows de GitHub Actions colgados hasta el timeout del job
+    // (30 min) desde que se migró de @libsql/client (que sí cierra solo) a
+    // postgres.js: el trabajo real terminaba, pero el step nunca reportaba
+    // éxito. 10s de inactividad es de sobra para el hueco entre queries de un
+    // fetch a una API externa (ESPN, tennis-data) sin mantener el proceso vivo
+    // después del último query real.
+    idle_timeout: 10,
   });
   return sqlClient;
 }

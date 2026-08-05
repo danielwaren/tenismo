@@ -112,6 +112,8 @@ export default function TradingPage({ initialBankrolls }: { initialBankrolls: { 
         </section>
       )}
 
+      {summary && <BankrollMovement bankrollId={summary.id} currency={summary.currency} onDone={reload} />}
+
       <nav className="flex gap-1 overflow-x-auto" aria-label="Secciones">
         {tabs.map((t) => (
           <button key={t.key} type="button" onClick={() => setTab(t.key)}
@@ -251,6 +253,101 @@ function Item({ label, value }: { label: string; value: string }) {
       <dt className="text-ink-faint">{label}</dt>
       <dd className="mt-0.5 font-mono tabular-nums text-ink">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * Depósito / retiro sobre la banca activa. Es la única forma de mover la caja
+ * después de crearla: `initialBalance` en CreateBankroll solo pone el arranque.
+ * Escribe en `bankroll_transactions` vía POST /api/bets/bankroll (action
+ * 'movement'), que ya existía en el backend — addBankrollMovement() en
+ * src/lib/bets.ts — sin ningún control en esta pantalla hasta ahora.
+ */
+function BankrollMovement({ bankrollId, currency, onDone }: { bankrollId: number; currency: string; onDone: () => void }) {
+  const [open, setOpen] = useState<'DEPOSIT' | 'WITHDRAWAL' | null>(null);
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const amountNum = Number(amount);
+  const valid = Number.isFinite(amountNum) && amountNum > 0;
+
+  async function submit() {
+    if (!open) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/bets/bankroll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'movement', bankrollId, type: open, amount: amountNum, description: description || undefined }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'No se pudo registrar el movimiento.');
+      setAmount(''); setDescription(''); setOpen(null);
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <section className="flex gap-2">
+        <button type="button" onClick={() => setOpen('DEPOSIT')}
+          className="flex-1 rounded-lg border border-court/40 bg-court/5 px-3 py-2 text-sm font-medium text-court">
+          + Depositar
+        </button>
+        <button type="button" onClick={() => setOpen('WITHDRAWAL')}
+          className="flex-1 rounded-lg border border-line px-3 py-2 text-sm font-medium text-ink-muted">
+          − Retirar
+        </button>
+      </section>
+    );
+  }
+
+  const input = 'w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink';
+  return (
+    <section className="card space-y-3 p-4">
+      <h3 className="text-sm font-semibold text-ink">
+        {open === 'DEPOSIT' ? 'Depositar en la banca' : 'Retirar de la banca'}
+      </h3>
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        {open === 'DEPOSIT'
+          ? 'Registra el dinero que metiste a la casa de apuestas. No mueve nada real, solo lleva la cuenta.'
+          : 'Registra el dinero que sacaste de la casa de apuestas.'}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-2xs uppercase tracking-wide text-ink-muted" htmlFor="mv-amount">
+            Importe ({currency})
+          </label>
+          <input id="mv-amount" className={input} inputMode="decimal" value={amount}
+            onChange={(e) => setAmount(e.target.value)} placeholder="50" autoFocus />
+        </div>
+        <div>
+          <label className="mb-1 block text-2xs uppercase tracking-wide text-ink-muted" htmlFor="mv-desc">
+            Nota (opcional)
+          </label>
+          <input id="mv-desc" className={input} value={description}
+            onChange={(e) => setDescription(e.target.value)} placeholder="Bet365" />
+        </div>
+      </div>
+      {error && <p className="text-2xs text-live">{error}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => { setOpen(null); setError(null); }}
+          className="rounded-lg border border-line px-4 py-2.5 text-sm text-ink-muted">
+          Cancelar
+        </button>
+        <button type="button" disabled={busy || !valid} onClick={submit}
+          className="rounded-lg bg-court px-4 py-2.5 text-sm font-semibold text-bg disabled:opacity-40">
+          {busy ? 'Guardando…' : open === 'DEPOSIT' ? 'Confirmar depósito' : 'Confirmar retiro'}
+        </button>
+      </div>
+    </section>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ForecastCard from './ForecastCard';
+import PlayerSearchInput from './PlayerSearchInput';
 import { MARKETS, SCOPES, TOURS, type ForecastResponse, type MarketType, type BankrollSummary } from './types';
 import { money, odds as fmtOdds } from './format';
 
@@ -147,11 +148,11 @@ export default function BetForm({
           </div>
           <div>
             <label className={labelClass} htmlFor="p1">Jugador 1</label>
-            <input id="p1" className={inputClass} value={playerOne} onChange={(e) => setPlayerOne(e.target.value)} placeholder="Carlos Alcaraz" />
+            <PlayerSearchInput id="p1" value={playerOne} onChange={setPlayerOne} placeholder="Carlos Alcaraz" />
           </div>
           <div>
             <label className={labelClass} htmlFor="p2">Jugador 2</label>
-            <input id="p2" className={inputClass} value={playerTwo} onChange={(e) => setPlayerTwo(e.target.value)} placeholder="Jannik Sinner" />
+            <PlayerSearchInput id="p2" value={playerTwo} onChange={setPlayerTwo} placeholder="Jannik Sinner" />
           </div>
           <div>
             <label className={labelClass} htmlFor="surface">Superficie</label>

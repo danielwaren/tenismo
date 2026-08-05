@@ -64,13 +64,6 @@ jobs:
         # todos los días sería tirar ancho de banda de la fuente.
         run: npm run db:ingest -- --from $(date -u +%Y) --force
 
-      - name: Reconciliar programados con jugados
-        # Antes de nada: los partidos que ya se jugaron dejan de ser 'scheduled'
-        # y sus cuotas y apuestas se mueven a la fila definitiva. Si no, las
-        # apuestas simuladas apuntarían a un partido sin resultado y nunca se
-        # liquidarían.
-        run: npx tsx scripts/reconcile.ts
-
       - name: Torneos en curso y calendario (ESPN)
         # Fuente gratuita de los torneos que se juegan AHORA (incluidos los 250
         # que The Odds API no cubre), su calendario y los marcadores en vivo.
@@ -83,6 +76,18 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: npx tsx scripts/odds-ingest.ts
+
+      - name: Reconciliar programados con jugados
+        # Va DESPUÉS de las tres fuentes (tennis-data arriba, ESPN y The Odds
+        # API): fusiona los torneos duplicados que cualquiera de ellas haya
+        # creado hoy (mismo evento, nombre distinto — "National Bank Open
+        # presented by Rogers" de ESPN contra "ATP Canadian Open" de tennis-data,
+        # p.ej.) y mueve los partidos 'scheduled' ya jugados a su fila
+        # definitiva, con cuotas y apuestas. Si corriera antes de ESPN, el
+        # duplicado que ESPN crea en este mismo run se quedaría sin fusionar
+        # hasta el día siguiente — y con él, sus marcadores en vivo invisibles
+        # en "Torneos en vivo".
+        run: npx tsx scripts/reconcile.ts
 
       - name: Entrenar Elo y calcular features
         run: |
