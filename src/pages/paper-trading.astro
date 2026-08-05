@@ -1,12 +1,35 @@
 ---
 import Base from '../layouts/Base.astro';
-import { getPaperSummary, getPaperTrades, getPaperMarketBreakdown } from '../lib/queries';
+import { getPaperSummary, getPaperTrades, getPaperMarketBreakdown, isPaperStatus } from '../lib/queries';
 import { fmtDate, signedPct } from '../lib/format';
 
 export const prerender = false;
 
-const [summary, trades, byMarket] = await Promise.all([getPaperSummary(), getPaperTrades(50), getPaperMarketBreakdown()]);
+// Filtro por estado en la URL (?estado=won) y no en el cliente: la página ya es
+// SSR, así el enlace se puede compartir y el filtro se aplica en SQL, sobre
+// TODAS las apuestas y no solo sobre las 50 que se muestran.
+const estadoParam = Astro.url.searchParams.get('estado');
+const estado = isPaperStatus(estadoParam) ? estadoParam : undefined;
+
+const [summary, trades, byMarket] = await Promise.all([
+  getPaperSummary(),
+  getPaperTrades(50, estado),
+  getPaperMarketBreakdown(),
+]);
 const f2 = (x: number) => x.toFixed(2);
+
+const filtros = summary
+  ? [
+      { key: undefined, label: 'Todas', n: summary.total },
+      { key: 'open' as const, label: 'Abiertas', n: summary.open },
+      { key: 'won' as const, label: 'Ganadas', n: summary.won },
+      { key: 'lost' as const, label: 'Perdidas', n: summary.lost },
+      { key: 'void' as const, label: 'Nulas (push)', n: summary.voidCount },
+    ]
+  : [];
+const ETIQUETA: Record<string, string> = {
+  open: 'abiertas', won: 'ganadas', lost: 'perdidas', void: 'nulas',
+};
 ---
 
 <Base subtitle="Simulador con dinero ficticio y cuotas reales. No ejecuta nada real." active="paper">
@@ -72,6 +95,29 @@ const f2 = (x: number) => x.toFixed(2);
 
       <section>
         <h2 class="mb-3 font-display text-lg font-semibold">Apuestas simuladas</h2>
+
+        <nav class="mb-3 flex flex-wrap gap-1.5" aria-label="Filtrar por estado">
+          {filtros.map((f) => (
+            <a
+              href={f.key ? `/paper-trading?estado=${f.key}` : '/paper-trading'}
+              aria-current={estado === f.key ? 'page' : undefined}
+              class={`rounded-lg px-3 py-1.5 text-xs font-medium no-underline ${
+                estado === f.key
+                  ? 'bg-surface-2 text-court-ink'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              {f.label}
+              <span class="ml-1 font-mono tabular-nums text-ink-faint">{f.n}</span>
+            </a>
+          ))}
+        </nav>
+
+        {trades.length === 0 ? (
+          <p class="rounded-lg border border-line bg-surface p-4 text-sm text-ink-muted">
+            No hay apuestas {estado ? ETIQUETA[estado] : ''} todavía.
+          </p>
+        ) : (
         <div class="overflow-x-auto rounded-lg border border-line">
           <table class="w-full text-sm">
             <thead class="bg-surface-2/50 text-left text-xs uppercase tracking-wide text-ink-muted">
@@ -116,6 +162,7 @@ const f2 = (x: number) => x.toFixed(2);
             </tbody>
           </table>
         </div>
+        )}
       </section>
     </>
   ) : (

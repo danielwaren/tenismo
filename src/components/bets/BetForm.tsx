@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ForecastCard from './ForecastCard';
 import PlayerSearchInput from './PlayerSearchInput';
+import TournamentSelect from './TournamentSelect';
 import { MARKETS, SCOPES, TOURS, type ForecastResponse, type MarketType, type BankrollSummary } from './types';
 import { money, odds as fmtOdds } from './format';
 
@@ -144,7 +145,19 @@ export default function BetForm({
           </div>
           <div>
             <label className={labelClass} htmlFor="tournament">Torneo</label>
-            <input id="tournament" className={inputClass} value={tournament} onChange={(e) => setTournament(e.target.value)} placeholder="National Bank Open" />
+            <TournamentSelect
+              id="tournament"
+              value={tournament}
+              onChange={setTournament}
+              // Elegir el torneo ya dice circuito y superficie: rellenarlos
+              // evita dos erratas más y son justo los campos que el modelo usa
+              // para filtrar el Elo.
+              onPick={(t) => {
+                if (TOURS.includes(t.tour as (typeof TOURS)[number])) setTour(t.tour);
+                if (t.surface) setSurface(t.surface);
+              }}
+              placeholder="National Bank Open"
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor="p1">Jugador 1</label>

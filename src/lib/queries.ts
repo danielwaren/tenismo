@@ -1201,6 +1201,8 @@ export interface PaperSummary {
   open: number;
   won: number;
   lost: number;
+  /** Anuladas (push): stake devuelto, ni ganada ni perdida. */
+  voidCount: number;
   profit: number;
   staked: number;
   roi: number | null;
@@ -1219,6 +1221,7 @@ export async function getPaperSummary(): Promise<PaperSummary | null> {
            sum(case when status='open' then 1 else 0 end) open,
            sum(case when status='won' then 1 else 0 end) won,
            sum(case when status='lost' then 1 else 0 end) lost,
+           sum(case when status='void' then 1 else 0 end) voidc,
            coalesce(sum(coalesce(profit,0)),0) profit,
            coalesce(sum(case when status in ('won','lost') then stake else 0 end),0) staked,
            avg(clv) clv_mean,
@@ -1239,6 +1242,7 @@ export async function getPaperSummary(): Promise<PaperSummary | null> {
     open: Number(s.open),
     won: Number(s.won),
     lost: Number(s.lost),
+    voidCount: Number(s.voidc),
     profit,
     staked,
     roi: staked > 0 ? (profit / staked) * 100 : null,
@@ -1287,8 +1291,19 @@ const MARKET_LABEL: Record<string, string> = {
   ML: 'Ganador', TOTAL_GAMES: 'Total de juegos', GAMES_HCP: 'Hándicap de juegos',
 };
 
-export async function getPaperTrades(limit = 50): Promise<PaperTradeRow[]> {
+/** Estados por los que se puede filtrar la tabla de apuestas simuladas. */
+export const PAPER_STATUSES = ['open', 'won', 'lost', 'void'] as const;
+export type PaperStatus = (typeof PAPER_STATUSES)[number];
+
+export function isPaperStatus(v: string | null | undefined): v is PaperStatus {
+  return !!v && (PAPER_STATUSES as readonly string[]).includes(v);
+}
+
+export async function getPaperTrades(limit = 50, status?: PaperStatus): Promise<PaperTradeRow[]> {
   const c = db();
+  // El filtro va en SQL y no en JS: filtrando después del `limit` una vista de
+  // "perdidas" mostraría solo las que hubiera entre las 50 últimas, no las 50
+  // últimas perdidas.
   const rows = (await c.execute({
     sql: `select pt.id, pt.match_id, pt.market, pt.selection, pt.line, pt.odds_taken, pt.edge, pt.stake,
                  pt.status, pt.profit, pt.clv, pt.placed_at,
@@ -1297,8 +1312,9 @@ export async function getPaperTrades(limit = 50): Promise<PaperTradeRow[]> {
           join matches m on m.id = pt.match_id
           join players p1 on p1.id = m.p1_id
           join players p2 on p2.id = m.p2_id
+          ${status ? 'where pt.status = ?' : ''}
           order by pt.placed_at desc limit ?`,
-    args: [limit],
+    args: status ? [status, limit] : [limit],
   })).rows;
   return rows.map((r) => {
     const market = String(r.market);

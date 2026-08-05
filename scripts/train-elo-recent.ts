@@ -37,7 +37,7 @@ const runBatch = (stmts: { sql: string; args: unknown[] }[], label: string) =>
 
 async function main() {
   const client = db();
-  console.log(`Base: ${isLocalDb() ? 'local (fichero)' : 'Turso'}`);
+  console.log(`Base: ${isLocalDb() ? 'SIN CONFIGURAR' : 'Supabase'}`);
 
   const pending = await client.execute(`
     select m.p1_id, m.p2_id, m.p1_won, m.played_on, m.round, tr.series

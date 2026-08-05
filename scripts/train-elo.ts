@@ -103,7 +103,7 @@ const runBatch = (stmts: { sql: string; args: unknown[] }[], label: string) =>
 async function main() {
   const client = db();
   const reset = hasFlag('reset');
-  console.log(`Base: ${isLocalDb() ? 'local (fichero)' : 'Turso'} — ${process.env.TURSO_DATABASE_URL}`);
+  console.log(`Base: ${isLocalDb() ? 'SIN CONFIGURAR' : 'Supabase'} — ${process.env.SUPABASE_DB_HOST}`);
 
   if (reset) {
     console.log('Reset: borrando ratings, historial y predicciones previas...');

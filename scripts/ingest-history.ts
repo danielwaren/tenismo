@@ -70,7 +70,7 @@ async function main() {
   const start = Math.max(from, FIRST_XLSX_SEASON);
 
   const client = db();
-  console.log(`Base: ${isLocalDb() ? 'local (fichero)' : 'Turso'} — ${process.env.TURSO_DATABASE_URL}`);
+  console.log(`Base: ${isLocalDb() ? 'SIN CONFIGURAR' : 'Supabase'} — ${process.env.SUPABASE_DB_HOST}`);
   console.log(`Temporadas ${start}..${to}, circuitos ${tours.join(' + ')}\n`);
 
   // ── 1. Descarga y parseo ───────────────────────────────────────────────────

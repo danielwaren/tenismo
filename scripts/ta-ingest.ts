@@ -362,7 +362,7 @@ async function main() {
   const linkOnly = hasFlag('link-only');
   const force = hasFlag('force');
 
-  console.log(`Base: ${isLocalDb() ? 'local (fichero)' : 'Turso'} — ${process.env.TURSO_DATABASE_URL ?? 'file:./data/tennis.db'}`);
+  console.log(`Base: ${isLocalDb() ? 'SIN CONFIGURAR' : 'Supabase'} — ${process.env.SUPABASE_DB_HOST}`);
 
   const atpTourId = Number((await client.execute("select id from tours where code='ATP'")).rows[0].id);
 
