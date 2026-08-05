@@ -18,8 +18,15 @@ name: Estadisticas Tennis Abstract
 #
 # RITMO: Cloudflare corta con `error code: 1015` a las ~6 peticiones seguidas.
 # El script espera 6 s entre fichas y hace backoff, así que --max marca el
-# tiempo del job: 120 fichas ≈ 12 min. No subir el ritmo "para ir más rápido";
-# es exactamente lo que provoca el bloqueo.
+# tiempo del job: 120 fichas ≈ 12 min de espera pura. No subir el ritmo "para
+# ir más rápido"; es exactamente lo que provoca el bloqueo.
+#
+# A esos 12 min hay que sumarles las escrituras. Con Turso el lote entero iba
+# en UNA petición HTTP y el job cerraba en ~15 min; con Supabase cada sentencia
+# es un ida-y-vuelta, así que el mismo trabajo se pasó de los 30 min que había
+# aquí y el job moría a medio rastreo (run #8, cancelado por timeout con el
+# scraping aún en curso). Está medido que el pipelining NO lo arregla (ver
+# src/lib/db.ts): lo que sobra es tiempo de pared, no de CPU.
 #
 # Secrets necesarios en el repositorio (Supabase/Postgres, migrado ago 2026):
 #   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME,
@@ -44,13 +51,13 @@ on:
 concurrency:
   # Dos rastreos a la vez duplicarían las peticiones a la fuente y dispararían
   # el límite de Cloudflare para los dos.
-  group: ta-turso
+  group: ta-supabase
   cancel-in-progress: false
 
 jobs:
   estadisticas:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     env:
       SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
       SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}

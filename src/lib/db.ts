@@ -159,6 +159,12 @@ export function db(): Client {
     },
 
     async batch(stmts, _mode) {
+      // Una sentencia por ida-y-vuelta. Turso mandaba el lote entero en UNA
+      // petición HTTP, así que esto es más lento por diseño: contra Supabase
+      // cada lote cuesta (nº de sentencias × RTT). Medido: lanzarlas todas sin
+      // await intermedio para que postgres.js las encole (pipelining) NO mejora
+      // nada — 1,0x, el pooler en modo transacción las sirve igual de una en
+      // una. No volver a intentarlo sin medir antes.
       return sql.begin(async (tx) => {
         const out: ResultSet[] = [];
         for (const s of stmts) {
