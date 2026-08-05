@@ -490,8 +490,7 @@ async function main() {
 
     const hist = (pid: number, scope: string, before: number, after: number) =>
       historyStmts.push({
-        sql: `insert into rating_history (player_id, surface, match_id, elo_before, elo_after, played_on)
-              values (?, ?, ?, ?, ?, ?)`,
+        sql: RATING_HISTORY_SQL,
         args: [pid, scope, matchId, Math.round(before * 100) / 100, Math.round(after * 100) / 100, playedOn],
       });
     hist(p1, 'all', beforeAll1, next.p1Overall.elo);
