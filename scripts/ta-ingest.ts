@@ -33,6 +33,7 @@ import { db, isLocalDb } from '../src/lib/db';
 import { buildIndex, resolvePlayer, type PlayerIndex } from '../src/lib/players';
 import { loadEnv } from './lib/env';
 import { runBatch as runBatchWithRetry } from './lib/batch';
+import { bulkLinkStmts, type TaLink } from './lib/links';
 import {
   fetchPlayerPage,
   parsePlayerPage,
@@ -264,11 +265,15 @@ async function linkPending(atpTourId: number): Promise<Record<string, number>> {
   const counts: Record<string, number> = {
     linked: 0, no_candidate: 0, score_mismatch: 0, ambiguous: 0, unresolved: 0, no_score: 0,
   };
-  const statusStmts: { sql: string; args: unknown[] }[] = [];
+  // Los enlaces se acumulan como DATOS, no como sentencias sueltas: son ~46.000
+  // y de una en una tardaban más que todo el resto del job junto (el run #10
+  // murió por timeout ahí, con el rastreo y las 52.676 filas de ta_matches ya
+  // escritas). Abajo se convierten en unos pocos `update ... from (values ...)`.
+  const links: TaLink[] = [];
   const statStmts: { sql: string; args: unknown[] }[] = [];
   const mark = (key: string, status: string) => {
     counts[status]++;
-    statusStmts.push({ sql: `update ta_matches set link_status=?, match_id=null where ta_key = ?`, args: [status, key] });
+    links.push({ taKey: key, status, matchId: null });
   };
 
   for (const p of pending) {
@@ -306,10 +311,7 @@ async function linkPending(atpTourId: number): Promise<Record<string, number>> {
 
     const matchId = hits[0].id;
     counts.linked++;
-    statusStmts.push({
-      sql: `update ta_matches set link_status='linked', match_id=? where ta_key = ?`,
-      args: [matchId, p.taKey],
-    });
+    links.push({ taKey: p.taKey, status: 'linked', matchId });
     for (const [pid, st] of [[p.aId, p.a], [p.bId, p.b]] as const) {
       statStmts.push({
         sql: `insert into match_stats
@@ -331,7 +333,7 @@ async function linkPending(atpTourId: number): Promise<Record<string, number>> {
   }
 
   await runBatch(statStmts, 'estadísticas');
-  await runBatch(statusStmts, 'enlaces');
+  await runBatch(bulkLinkStmts(links), 'enlaces');
   return counts;
 }
 
