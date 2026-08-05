@@ -283,8 +283,13 @@ async function liquidar(client: ReturnType<typeof db>, dryRun: boolean) {
       // Postgres `IS` solo admite NULL/TRUE/FALSE/DISTINCT FROM — con un
       // parámetro es error de sintaxis ("syntax error at or near $4"), y por
       // eso el paso de Paper Trading reventaba al liquidar.
+      //
+      // Los `::double precision` tampoco son opcionales: un parámetro suelto
+      // en `? is null` no le da a Postgres nada de lo que deducir el tipo y
+      // falla con "could not determine data type of parameter $5".
       sql: `select odds from odds
-            where match_id = ? and market = ? and selection = ? and (line is not distinct from ? or ? is null)
+            where match_id = ? and market = ? and selection = ?
+              and (line is not distinct from ?::double precision or ?::double precision is null)
               and (bookmaker = 'pinnacle' or source = 'the-odds-api')
             order by case when bookmaker = 'pinnacle' then 0 else 1 end, captured_at desc
             limit 1`,
