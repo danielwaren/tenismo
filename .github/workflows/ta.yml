@@ -21,12 +21,12 @@ name: Estadisticas Tennis Abstract
 # tiempo del job: 120 fichas ≈ 12 min de espera pura. No subir el ritmo "para
 # ir más rápido"; es exactamente lo que provoca el bloqueo.
 #
-# A esos 12 min hay que sumarles las escrituras. Con Turso el lote entero iba
-# en UNA petición HTTP y el job cerraba en ~15 min; con Supabase cada sentencia
-# es un ida-y-vuelta, así que el mismo trabajo se pasó de los 30 min que había
-# aquí y el job moría a medio rastreo (run #8, cancelado por timeout con el
-# scraping aún en curso). Está medido que el pipelining NO lo arregla (ver
-# src/lib/db.ts): lo que sobra es tiempo de pared, no de CPU.
+# A esos 12 min hay que sumarles las escrituras (~72.000 filas). Con Turso el
+# lote iba en UNA petición HTTP; con Supabase cada sentencia es un
+# ida-y-vuelta, y de una en una eran 40 min más — los runs #8 y #9 murieron por
+# timeout con el scraping ya terminado. Ahora runBatch agrupa los inserts
+# idénticos en sentencias de varias filas (ver scripts/lib/batch.ts), así que
+# vuelven a ser un par de minutos.
 #
 # Secrets necesarios en el repositorio (Supabase/Postgres, migrado ago 2026):
 #   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME,
@@ -57,7 +57,7 @@ concurrency:
 jobs:
   estadisticas:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 30
     env:
       SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
       SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}

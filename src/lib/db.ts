@@ -165,6 +165,10 @@ export function db(): Client {
       // await intermedio para que postgres.js las encole (pipelining) NO mejora
       // nada — 1,0x, el pooler en modo transacción las sirve igual de una en
       // una. No volver a intentarlo sin medir antes.
+      //
+      // Lo que sí funciona es mandar MENOS sentencias: scripts/lib/batch.ts
+      // agrupa los inserts idénticos en tuplas de varias filas antes de llegar
+      // aquí (medido: 300 inserts pasan de ~130 s a 0,8 s).
       return sql.begin(async (tx) => {
         const out: ResultSet[] = [];
         for (const s of stmts) {

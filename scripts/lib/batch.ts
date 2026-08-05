@@ -34,6 +34,67 @@ export interface BatchOptions {
   progressAbove?: number;
 }
 
+/**
+ * Parte un INSERT de una fila en las tres piezas necesarias para repetir su
+ * tupla de valores: cabecera, tupla y cola (`on conflict ...`).
+ *
+ * Devuelve null si la sentencia no es un INSERT de una sola tupla de
+ * marcadores `?` — cualquier otra forma se ejecuta como estaba.
+ */
+export function splitInsert(sql: string): { head: string; tuple: string; tail: string } | null {
+  const m = /^(\s*insert\s+into[\s\S]*?\bvalues\s*)(\(\s*\?(?:\s*,\s*\?)*\s*\))([\s\S]*)$/i.exec(sql);
+  if (!m) return null;
+  return { head: m[1], tuple: m[2], tail: m[3] };
+}
+
+/** Tope de parámetros por sentencia en Postgres (65535); se deja margen. */
+const MAX_BIND_PARAMS = 50_000;
+
+/**
+ * Agrupa sentencias INSERT IDÉNTICAS en una sola de varias filas.
+ *
+ * POR QUÉ. Turso mandaba el lote entero en una petición HTTP; Postgres cobra
+ * un ida-y-vuelta por sentencia. El rastreo de Tennis Abstract genera ~72.000
+ * inserts con el MISMO SQL y solo cambian los argumentos: de uno en uno son
+ * ~40 min de pura latencia (medido: el job moría por timeout con el scraping
+ * ya terminado). Agrupados en tuplas de varias filas son ~150 sentencias.
+ *
+ * Solo agrupa lo que es trivialmente seguro agrupar: sentencias consecutivas
+ * con el SQL byte a byte idéntico y una única tupla de `?`. Cualquier otra
+ * cosa se devuelve tal cual.
+ */
+export function coalesceInserts(
+  stmts: { sql: string; args: unknown[] }[],
+): { sql: string; args: unknown[] }[] {
+  if (stmts.length < 2) return stmts;
+  const parts = splitInsert(stmts[0].sql);
+  if (!parts) return stmts;
+  const cols = stmts[0].args.length;
+  if (cols === 0) return stmts;
+  if (!stmts.every((s) => s.sql === stmts[0].sql && s.args.length === cols)) return stmts;
+
+  const maxRows = Math.max(1, Math.floor(MAX_BIND_PARAMS / cols));
+  const out: { sql: string; args: unknown[] }[] = [];
+  for (let i = 0; i < stmts.length; i += maxRows) {
+    const rows = stmts.slice(i, i + maxRows);
+    out.push({
+      sql: `${parts.head}${new Array(rows.length).fill(parts.tuple).join(', ')}${parts.tail}`,
+      args: rows.flatMap((r) => r.args),
+    });
+  }
+  return out;
+}
+
+/**
+ * ¿Es el error de agrupar dos filas con la MISMA clave de conflicto en una
+ * sola sentencia? Postgres lo rechaza ("cannot affect row a second time"),
+ * mientras que de una en una la segunda simplemente actualiza a la primera.
+ * Cuando pasa, ese lote se reejecuta sentencia a sentencia.
+ */
+function isDuplicateConflictError(e: unknown): boolean {
+  return /cannot affect row a second time/i.test(String((e as Error)?.message ?? e));
+}
+
 export async function runBatch(
   client: Client,
   stmts: { sql: string; args: unknown[] }[],
@@ -45,7 +106,8 @@ export async function runBatch(
   const showProgress = stmts.length > progressAbove;
 
   for (let i = 0; i < stmts.length; i += chunk) {
-    const slice = stmts.slice(i, i + chunk);
+    const original = stmts.slice(i, i + chunk);
+    let slice = coalesceInserts(original);
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= RETRIES; attempt++) {
@@ -54,6 +116,16 @@ export async function runBatch(
         lastError = undefined;
         break;
       } catch (e) {
+        // Claves repetidas dentro del lote: se rehace sin agrupar, que sí las
+        // admite (la segunda fila actualiza a la primera). No gasta intento:
+        // si cayera en el último, el bucle saldría sin escribir NADA y sin
+        // error — el lote se perdería en silencio. Solo puede pasar una vez,
+        // porque después slice === original y la condición ya no se cumple.
+        if (slice !== original && isDuplicateConflictError(e)) {
+          slice = original;
+          attempt--;
+          continue;
+        }
         lastError = e;
         if (!isNetworkError(e) || attempt === RETRIES) throw e;
         const delay = BASE_DELAY_MS * 2 ** (attempt - 1);
