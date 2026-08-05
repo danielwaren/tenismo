@@ -174,8 +174,8 @@ function upsertTaMatch(e: { m: TaMatch; sides: number; conflict: boolean }, aId:
           on conflict (ta_key) do update set
             a_player_id  = coalesce(excluded.a_player_id, ta_matches.a_player_id),
             b_player_id  = coalesce(excluded.b_player_id, ta_matches.b_player_id),
-            sides_seen   = max(ta_matches.sides_seen, excluded.sides_seen),
-            conflict     = max(ta_matches.conflict, excluded.conflict),
+            sides_seen   = greatest(ta_matches.sides_seen, excluded.sides_seen),
+            conflict     = greatest(ta_matches.conflict, excluded.conflict),
             mcp_chart_id = coalesce(excluded.mcp_chart_id, ta_matches.mcp_chart_id),
             updated_at   = iso_now()`,
     args: [
