@@ -192,7 +192,15 @@ async function main() {
     left join match_stats sa on sa.match_id = m.id and sa.player_id = m.p1_id
     left join match_stats sb on sb.match_id = m.id and sb.player_id = m.p2_id
     where m.elo_applied = 0 and m.status = 'completed' and m.p1_won is not null
-      and m.source = 'tennis-data'
+      -- 'tennis-abstract' son los partidos Challenger promovidos por
+      -- promote-challenger.ts: filas REALES en \`matches\` (jugadores, torneo,
+      -- marcador), a diferencia de la fusión TA_LEVELS de más abajo, que solo
+      -- mueve el Elo sin generar features/predicción/h2h porque no tiene fila
+      -- en \`matches\`. Al tener fila real, procesarlos aquí es estrictamente
+      -- más completo que la fusión ligera, y no se duplican: promote-challenger
+      -- marca su \`ta_matches.link_status\` como 'linked', así que la fusión de
+      -- abajo (que solo toma 'no_candidate') ya no vuelve a tocarlos.
+      and m.source in ('tennis-data', 'tennis-abstract')
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);

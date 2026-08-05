@@ -32,7 +32,12 @@ concurrency:
 jobs:
   ingesta:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 min bastaba con ~45.000 partidos. Con los ~33.500 de Challenger
+    # promovidos a `matches` (promote-challenger.ts) el run #27 se quedó a
+    # mitad del entrenamiento del Elo y lo mató el timeout, dejando
+    # player_ratings vacía. Un --reset es un caso extremo (recorre TODO el
+    # histórico); el día a día sin --reset sigue siendo incremental y rápido.
+    timeout-minutes: 90
     env:
       SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
       SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
