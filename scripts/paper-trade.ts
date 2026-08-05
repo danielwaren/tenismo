@@ -96,8 +96,17 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
 
   // ── Ganador (ML) ────────────────────────────────────────────────────────────
   const rowsMl = (await client.execute({
+    // `distinct on (m.id)`: UNA fila por partido. Los join con `odds` son
+    // uno-a-muchos (la misma cuota se captura varias veces antes del cierre),
+    // así que sin esto sale el producto cartesiano y se colocan varias
+    // apuestas al mismo partido — pasó de verdad: 542 "candidatos" para 2
+    // partidos, algunos a cuota 20. En SQLite lo evitaba `group by m.id`, que
+    // se quedaba con una fila arbitraria; Postgres no admite esa laxitud y
+    // enumerar las columnas en el GROUP BY NO es equivalente: agrupa por la
+    // combinación, que es justo el cartesiano.
     sql: `
-      select m.id, m.played_on, mo.prob_p1, mo.confidence,
+      select distinct on (m.id)
+             m.id, m.played_on, mo.prob_p1, mo.confidence,
              fair1.odds as fair_p1, fair2.odds as fair_p2,
              ex1.odds as exec_p1, ex2.odds as exec_p2, ex1.bookmaker as book
       from matches m
@@ -108,8 +117,9 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       join odds ex2 on ex2.match_id = m.id and ex2.selection='p2' and ex2.bookmaker = ? and ex2.market='match_winner'
       left join paper_trades pt on pt.match_id = m.id and pt.market = 'ML'
       where m.status = 'scheduled' and pt.id is null
-      group by m.id, m.played_on, mo.prob_p1, mo.confidence, fair1.odds, fair2.odds, ex1.odds, ex2.odds, ex1.bookmaker
-      order by m.played_on
+      -- distinct on exige que m.id abra el orden; dentro de cada partido se
+      -- elige la captura más reciente, no una cualquiera.
+      order by m.id, ex1.captured_at desc
     `,
     args: [version, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK],
   })).rows;
@@ -133,8 +143,11 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
   // que su P(gana el partido) implícita no coincida exactamente con la del
   // modelo oficial, que combina 14 señales y no solo saque/resto.
   const rowsJuegos = (await client.execute({
+    // Misma razón que arriba: una fila por partido, no el cartesiano de todas
+    // las capturas de cuota que encajan.
     sql: `
-      select m.id, m.played_on, m.best_of, mo.confidence,
+      select distinct on (m.id)
+             m.id, m.played_on, m.best_of, mo.confidence,
              tf1.odds fair_over, tf2.odds fair_under, tf1.line t_line,
              tx1.odds ex_over, tx2.odds ex_under, tx1.bookmaker t_book,
              hf1.odds fair_p1_h, hf2.odds fair_p2_h, hf1.line h_line,
@@ -154,11 +167,7 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       left join paper_trades pth on pth.match_id = m.id and pth.market = 'GAMES_HCP'
       where m.status = 'scheduled' and (tf1.id is not null or hf1.id is not null)
         and (ptt.id is null or pth.id is null)
-      group by m.id, m.played_on, m.best_of, mo.confidence,
-               tf1.odds, tf2.odds, tf1.line, tx1.odds, tx2.odds, tx1.bookmaker,
-               hf1.odds, hf2.odds, hf1.line, hx1.odds, hx2.odds, hx1.bookmaker,
-               ptt.id, pth.id
-      order by m.played_on
+      order by m.id, tf1.captured_at desc nulls last, hf1.captured_at desc nulls last
     `,
     args: [version, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK, FAIR_BOOK_LIKE, FAIR_BOOK_LIKE, EXEC_BOOK, EXEC_BOOK],
   })).rows;
@@ -269,8 +278,13 @@ async function liquidar(client: ReturnType<typeof db>, dryRun: boolean) {
     // ML; para TOTAL_GAMES/GAMES_HCP tennis-data no tiene esos mercados, así
     // que el CLV solo se mide contra la última captura de The Odds API.
     const cierre = (await client.execute({
+      // `line is not distinct from ?` y no `line is ?`: en SQLite `IS` con un
+      // parámetro es la igualdad que trata NULL como un valor más, pero en
+      // Postgres `IS` solo admite NULL/TRUE/FALSE/DISTINCT FROM — con un
+      // parámetro es error de sintaxis ("syntax error at or near $4"), y por
+      // eso el paso de Paper Trading reventaba al liquidar.
       sql: `select odds from odds
-            where match_id = ? and market = ? and selection = ? and (line is ? or ? is null)
+            where match_id = ? and market = ? and selection = ? and (line is not distinct from ? or ? is null)
               and (bookmaker = 'pinnacle' or source = 'the-odds-api')
             order by case when bookmaker = 'pinnacle' then 0 else 1 end, captured_at desc
             limit 1`,
