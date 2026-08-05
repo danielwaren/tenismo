@@ -63,4 +63,39 @@ describe('coalesceInserts', () => {
   it('una sola sentencia se deja como esta', () => {
     expect(coalesceInserts(mk(1))).toHaveLength(1);
   });
+
+  // La ingesta de cuotas mete literales dentro del VALUES; si esta forma no se
+  // agrupa son 21.392 idas y vueltas y el job se pasa del timeout (run #22).
+  it('agrupa tuplas que mezclan literales con marcadores', () => {
+    const sql =
+      "insert into odds (match_id, source, bookmaker, market, odds, is_closing)" +
+      " values (?, 'tennis-data', ?, 'match_winner', ?, 1)" +
+      ' on conflict (match_id, bookmaker) do update set odds = excluded.odds';
+    const stmts = [
+      { sql, args: [1, 'bet365', 2.4] },
+      { sql, args: [2, 'pinnacle', 1.8] },
+    ];
+    const out = coalesceInserts(stmts);
+    expect(out).toHaveLength(1);
+    expect(out[0].sql).toContain(
+      "values (?, 'tennis-data', ?, 'match_winner', ?, 1), (?, 'tennis-data', ?, 'match_winner', ?, 1)",
+    );
+    expect(out[0].args).toEqual([1, 'bet365', 2.4, 2, 'pinnacle', 1.8]);
+  });
+
+  it('no agrupa si la tupla no consume todos los argumentos', () => {
+    // 2 marcadores pero 3 argumentos: repetir la tupla desalinearía los
+    // parámetros y escribiría datos en las columnas equivocadas.
+    const stmts = [
+      { sql: 'insert into t (a,b) values (?,?)', args: [1, 2, 3] },
+      { sql: 'insert into t (a,b) values (?,?)', args: [4, 5, 6] },
+    ];
+    expect(coalesceInserts(stmts)).toHaveLength(2);
+  });
+
+  it('no agrupa un VALUES con parentesis anidados', () => {
+    const sql = 'insert into t (a,b) values (?, coalesce(?, 0))';
+    const stmts = [{ sql, args: [1, 2] }, { sql, args: [3, 4] }];
+    expect(coalesceInserts(stmts)).toHaveLength(2);
+  });
 });

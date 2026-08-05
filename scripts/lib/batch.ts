@@ -38,14 +38,23 @@ export interface BatchOptions {
  * Parte un INSERT de una fila en las tres piezas necesarias para repetir su
  * tupla de valores: cabecera, tupla y cola (`on conflict ...`).
  *
- * Devuelve null si la sentencia no es un INSERT de una sola tupla de
- * marcadores `?` — cualquier otra forma se ejecuta como estaba.
+ * La tupla puede mezclar marcadores y literales — `values (?, 'tennis-data',
+ * ?, 1)` es la forma que usa la ingesta de cuotas. Repetirla tal cual es
+ * correcto: los literales se repiten idénticos y cada `?` consume su propio
+ * argumento.
+ *
+ * Devuelve null si no es un INSERT con una única tupla sin paréntesis
+ * anidados (nada de subconsultas ni funciones dentro del VALUES): esas formas
+ * se ejecutan como estaban.
  */
 export function splitInsert(sql: string): { head: string; tuple: string; tail: string } | null {
-  const m = /^(\s*insert\s+into[\s\S]*?\bvalues\s*)(\(\s*\?(?:\s*,\s*\?)*\s*\))([\s\S]*)$/i.exec(sql);
+  const m = /^(\s*insert\s+into[\s\S]*?\bvalues\s*)(\([^()]*\))([\s\S]*)$/i.exec(sql);
   if (!m) return null;
   return { head: m[1], tuple: m[2], tail: m[3] };
 }
+
+/** Marcadores `?` que consume una tupla. */
+const countPlaceholders = (tuple: string) => (tuple.match(/\?/g) ?? []).length;
 
 /** Tope de parámetros por sentencia en Postgres (65535); se deja margen. */
 const MAX_BIND_PARAMS = 50_000;
@@ -71,6 +80,10 @@ export function coalesceInserts(
   if (!parts) return stmts;
   const cols = stmts[0].args.length;
   if (cols === 0) return stmts;
+  // La tupla tiene que consumir EXACTAMENTE los argumentos de cada sentencia.
+  // Si no cuadra, repetirla desalinearía los parámetros y se escribirían datos
+  // en las columnas equivocadas: se deja sin agrupar.
+  if (countPlaceholders(parts.tuple) !== cols) return stmts;
   if (!stmts.every((s) => s.sql === stmts[0].sql && s.args.length === cols)) return stmts;
 
   const maxRows = Math.max(1, Math.floor(MAX_BIND_PARAMS / cols));
