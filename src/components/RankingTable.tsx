@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { RankingRow } from '../lib/queries';
+import { playerPath } from '../lib/urls';
+import PlayerAvatar from './PlayerAvatar';
 
 export type Tour = 'ATP' | 'WTA';
 export type Scope = 'all' | 'hard' | 'clay' | 'grass';
@@ -60,24 +62,44 @@ export default function RankingTable({ data }: { data: Record<string, RankingRow
           <table className="w-full text-sm">
             <thead className="border-b border-line bg-surface-2/50 text-left text-2xs uppercase tracking-wide text-ink-faint">
               <tr>
-                <th className="px-4 py-2.5 font-medium">#</th>
-                <th className="px-4 py-2.5 font-medium">Jugador</th>
+                <th className="px-4 py-2.5 text-right font-medium">#</th>
+                <th className="py-2.5 pr-4 font-medium">Jugador</th>
                 <th className="px-4 py-2.5 text-right font-medium">Elo</th>
                 <th className="hidden px-4 py-2.5 text-right font-medium sm:table-cell">Partidos</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/50">
               {rows.map((r, i) => (
-                <tr key={r.playerId} className="transition hover:bg-surface-2/40">
-                  <td className="px-4 py-2 tabular-nums text-ink-faint">{i + 1}</td>
-                  <td className="px-4 py-2">
-                    <div className="font-medium text-ink">{r.name}</div>
-                    <div className="mt-1 h-1 w-24 overflow-hidden rounded-full bg-surface-2">
-                      <div className="h-full rounded-full bg-court/70" style={{ width: `${topElo ? (r.elo / topElo) * 100 : 0}%` }} />
-                    </div>
+                <tr key={r.playerId} className="group transition hover:bg-surface-2/40">
+                  {/* El podio se marca con el número, no con medallas: es un
+                      rating continuo, y un icono de oro sugeriría un título. */}
+                  <td className={`px-4 py-2.5 text-right font-mono tabular-nums ${i < 3 ? 'text-court' : 'text-ink-faint'}`}>
+                    {i + 1}
                   </td>
-                  <td className="px-4 py-2 text-right font-mono tabular-nums text-ink">{r.elo.toFixed(0)}</td>
-                  <td className="hidden px-4 py-2 text-right font-mono tabular-nums text-ink-muted sm:table-cell">{r.matches}</td>
+                  <td className="py-2.5 pr-4">
+                    <a
+                      href={playerPath(r.playerId, r.slug)}
+                      className="flex items-center gap-3 no-underline"
+                    >
+                      <PlayerAvatar
+                        name={r.name}
+                        playerId={r.playerId}
+                        hasPhoto={r.hasPhoto}
+                        size={i < 3 ? 'md' : 'sm'}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-ink group-hover:text-court">{r.name}</span>
+                        <span className="mt-1 block h-1 w-20 overflow-hidden rounded-full bg-surface-2 sm:w-28">
+                          <span
+                            className="block h-full rounded-full bg-court/70"
+                            style={{ width: `${topElo ? (r.elo / topElo) * 100 : 0}%` }}
+                          />
+                        </span>
+                      </span>
+                    </a>
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-base tabular-nums text-ink">{r.elo.toFixed(0)}</td>
+                  <td className="hidden px-4 py-2.5 text-right font-mono tabular-nums text-ink-muted sm:table-cell">{r.matches}</td>
                 </tr>
               ))}
             </tbody>

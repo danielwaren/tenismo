@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { searchMatches, getAceEstimates } from '../../lib/queries';
+import { searchMatches, searchPlayers, searchTournaments, getAceEstimates } from '../../lib/queries';
 
 export const prerender = false;
 
@@ -15,16 +15,18 @@ export const GET: APIRoute = async ({ url }) => {
 
   // Sin texto y sin filtro no se devuelve nada: evita volcar toda la base.
   if (!q.trim() && tour === 'all') {
-    return new Response(JSON.stringify({ matches: [], aces: {} }), {
+    return new Response(JSON.stringify({ players: [], tournaments: [], matches: [], aces: {} }), {
       headers: { 'content-type': 'application/json' },
     });
   }
 
-  const matches = await searchMatches(q, tour, 60);
+  const [players, tournaments, matches] = await Promise.all([
+    searchPlayers(q, tour, 12), searchTournaments(q, tour, 12), searchMatches(q, tour, 40),
+  ]);
   // Los aces viajan aparte, indexados por id: el buscador es una isla de React
   // y no puede consultar la base (el token de Turso no sale del servidor).
   const aces = Object.fromEntries(await getAceEstimates(matches.map((m) => m.id)));
-  return new Response(JSON.stringify({ matches, aces }), {
-    headers: { 'content-type': 'application/json' },
+  return new Response(JSON.stringify({ players, tournaments, matches, aces }), {
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 };

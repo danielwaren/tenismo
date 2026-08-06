@@ -10,12 +10,12 @@ interface Props {
 const { title = 'Tennis Trader Intelligence', subtitle, active } = Astro.props;
 
 const nav = [
-  { href: '/', label: 'Panel', key: 'home' },
-  { href: '/ranking', label: 'Ranking', key: 'ranking' },
-  { href: '/trading', label: 'Mis apuestas', key: 'trading' },
-  { href: '/paper-trading', label: 'Paper Trading', key: 'paper' },
-  { href: '/calibracion', label: 'Calibración', key: 'calibracion' },
-  { href: '/guia', label: 'Guía', key: 'guia' },
+  { href: '/', label: 'Inicio', key: 'home', icon: '⌂' },
+  { href: '/ranking', label: 'Rankings', key: 'ranking', icon: '↗' },
+  { href: '/trading', label: 'Seguimiento', key: 'trading', icon: '◎' },
+  { href: '/paper-trading', label: 'Simulador', key: 'paper', icon: '◇' },
+  { href: '/calibracion', label: 'Modelo', key: 'calibracion', icon: '⌁' },
+  { href: '/guia', label: 'Guía', key: 'guia', icon: '?' },
 ];
 ---
 
@@ -27,53 +27,63 @@ const nav = [
     <title>{title}</title>
     <meta name="description" content="Análisis y pronóstico de tenis ATP y WTA contrastado con el mercado." />
   </head>
-  <body class="min-h-dvh">
-    <header class="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur">
-      <div class="mx-auto max-w-6xl px-4 sm:px-6">
-        <div class="flex h-16 items-center justify-between gap-4">
-          <a href="/" class="flex items-center gap-2.5 no-underline">
-            <Logo />
-            <span class="font-display text-base font-semibold tracking-tight text-ink sm:text-lg">
-              Tennis Trader<span class="text-court"> Intelligence</span>
-            </span>
-          </a>
-          <nav class="hidden items-center gap-0.5 sm:flex" aria-label="Principal">
-            {nav.map((n) => (
-              <a
-                href={n.href}
-                aria-current={active === n.key ? 'page' : undefined}
-                class:list={[
-                  'rounded-lg px-3 py-2 text-sm font-medium no-underline',
-                  active === n.key ? 'bg-surface-2 text-court-ink' : 'text-ink-muted hover:text-ink',
-                ]}
-              >{n.label}</a>
-            ))}
-          </nav>
-        </div>
-        <!-- Nav móvil: scroll horizontal contenido, sin desbordar el body. -->
-        <nav class="-mx-4 flex gap-0.5 overflow-x-auto px-4 pb-2 sm:hidden" aria-label="Principal móvil">
+  <body class="min-h-dvh pb-20 lg:pb-0">
+    <div class="mx-auto min-h-dvh max-w-[1500px] lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
+      <aside class="sticky top-0 hidden h-dvh border-r border-line/70 bg-bg/80 p-5 backdrop-blur-xl lg:flex lg:flex-col">
+        <a href="/" class="flex items-center gap-3 no-underline">
+          <Logo class="h-9 w-9" />
+          <span class="font-display text-xl font-semibold tracking-tight text-ink">TENISMO</span>
+        </a>
+        <p class="mt-2 pl-12 text-2xs uppercase tracking-[0.16em] text-ink-faint">Tennis intelligence</p>
+        <nav class="mt-10 space-y-1.5" aria-label="Principal">
           {nav.map((n) => (
-            <a
-              href={n.href}
-              aria-current={active === n.key ? 'page' : undefined}
-              class:list={[
-                'shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium no-underline',
-                active === n.key ? 'bg-surface-2 text-court-ink' : 'text-ink-muted',
-              ]}
-            >{n.label}</a>
+            <a href={n.href} aria-current={active === n.key ? 'page' : undefined} class:list={[
+              'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium no-underline',
+              active === n.key ? 'bg-court text-bg shadow-[0_0_30px_hsl(var(--court)/.16)]' : 'text-ink-muted hover:bg-surface-2 hover:text-ink',
+            ]}>
+              <span class:list={['grid h-7 w-7 place-items-center rounded-lg text-base', active === n.key ? 'bg-bg/10' : 'bg-surface-2 text-ink-faint group-hover:text-court']}>{n.icon}</span>
+              {n.label}
+            </a>
           ))}
         </nav>
+        <div class="mt-auto rounded-2xl border border-court/20 bg-gradient-to-br from-court/10 to-transparent p-4">
+          <p class="eyebrow">Cobertura</p>
+          <p class="mt-2 text-sm font-medium text-ink">ATP · WTA · Challenger</p>
+          <p class="mt-1 text-xs leading-relaxed text-ink-faint">Datos observados, modelo auditable y fuentes identificadas.</p>
+        </div>
+      </aside>
+
+      <div class="min-w-0">
+        <header class="sticky top-0 z-40 border-b border-line/70 bg-bg/80 backdrop-blur-xl lg:hidden">
+          <div class="flex h-16 items-center justify-between px-4">
+            <a href="/" class="flex items-center gap-2.5 no-underline"><Logo /><span class="font-display text-lg font-semibold text-ink">TENISMO</span></a>
+            <a href="#buscar" class="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted no-underline">Buscar</a>
+          </div>
+        </header>
+
+        <main class="mx-auto max-w-[1240px] px-4 py-6 sm:px-7 sm:py-8 xl:px-10">
+          {subtitle && <p class="mb-6 max-w-2xl text-sm leading-relaxed text-ink-muted">{subtitle}</p>}
+          <slot />
+        </main>
+
+        <footer class="mx-auto max-w-[1240px] border-t border-line/70 px-4 py-8 text-xs leading-relaxed text-ink-faint sm:px-7 xl:px-10">
+          <p>TENISMO es una herramienta informativa y de análisis. No ejecuta apuestas ni gestiona dinero real.</p>
+          <p class="mt-2">
+            Fotos de jugadores vía <a href="https://www.tennisabstract.com" target="_blank" rel="noopener noreferrer"
+              class="text-ink-faint underline decoration-dotted underline-offset-2 hover:text-court">Tennis Abstract</a>,
+            cada una acreditada a su autor en la ficha del jugador.
+          </p>
+        </footer>
       </div>
-    </header>
+    </div>
 
-    <main class="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      {subtitle && <p class="mb-6 max-w-2xl text-sm leading-relaxed text-ink-muted">{subtitle}</p>}
-      <slot />
-    </main>
-
-    <footer class="mx-auto mt-8 max-w-6xl border-t border-line px-4 py-6 text-xs leading-relaxed text-ink-faint sm:px-6">
-      Herramienta de análisis y auditoría. No ejecuta apuestas, no se conecta a ninguna casa
-      y no gestiona dinero real. El Paper Trading usa dinero simulado y cuotas reales.
-    </footer>
+    <nav class="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 rounded-2xl border border-white/10 bg-surface/95 p-1.5 shadow-2xl backdrop-blur-xl lg:hidden" aria-label="Principal móvil">
+      {nav.slice(0, 5).map((n) => (
+        <a href={n.href} aria-current={active === n.key ? 'page' : undefined} class:list={[
+          'flex min-w-0 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-medium no-underline',
+          active === n.key ? 'bg-court text-bg' : 'text-ink-faint',
+        ]}><span class="text-base leading-none">{n.icon}</span><span class="truncate">{n.label}</span></a>
+      ))}
+    </nav>
   </body>
 </html>

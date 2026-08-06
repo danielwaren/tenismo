@@ -175,6 +175,43 @@ export function extractFullName(html: string): string | null {
 }
 
 /**
+ * Foto del jugador, si la ficha trae una.
+ *
+ * La ficha no lleva un `<img>` con la URL: la construye en JS a partir de
+ * `fullname` y de la etiqueta del fotógrafo (`var photog`):
+ *
+ *   https://www.tennisabstract.com/photos/{nombre_en_minusculas_con_guiones_bajos}-{photog}.jpg
+ *
+ * ATRIBUCIÓN. `photog_credit` y `photog_link` NO son opcionales: son fotos con
+ * licencia (el enlace apunta al autor, normalmente un usuario de Wikipedia) y
+ * la propia web las publica acreditadas. Si no se puede acreditar, no se usa
+ * la foto — por eso esta función devuelve las tres cosas juntas o null, y
+ * nunca una URL suelta.
+ */
+export function extractPhoto(
+  html: string,
+): { url: string; credit: string; creditUrl: string } | null {
+  const fullName = extractFullName(html);
+  if (!fullName) return null;
+
+  const photog = html.match(/var\s+photog\s*=\s*'([^']*)'/)?.[1]?.trim();
+  // Sin etiqueta de fotógrafo la ficha no pinta foto (lo comprueba con
+  // `typeof photog == 'undefined' || photog == ''`): no hay imagen que servir.
+  if (!photog) return null;
+
+  const credit = html.match(/var\s+photog_credit\s*=\s*'([^']*)'/)?.[1]?.trim() || photog;
+  const creditUrl = html.match(/var\s+photog_link\s*=\s*'([^']*)'/)?.[1]?.trim();
+  if (!creditUrl) return null;
+
+  const slug = fullName.toLowerCase().replace(/ /g, '_');
+  return {
+    url: `https://www.tennisabstract.com/photos/${slug}-${photog}.jpg`,
+    credit,
+    creditUrl,
+  };
+}
+
+/**
  * Recorta el literal `matchmx = [ ... ]` respetando las cadenas.
  *
  * Un `indexOf(']];')` ingenuo se pasa de largo: en la ficha hay más arrays

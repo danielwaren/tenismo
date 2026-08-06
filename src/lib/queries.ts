@@ -29,10 +29,13 @@ export async function getModelVersion(): Promise<string> {
 
 export interface RankingRow {
   playerId: number;
+  slug: string;
   name: string;
   tour: string;
   elo: number;
   matches: number;
+  /** ¿Hay foto para pintar el avatar? (la URL la resuelve /api/foto-jugador) */
+  hasPhoto: boolean;
 }
 
 export interface DbStats {
@@ -91,7 +94,8 @@ export async function getRanking(
 ): Promise<RankingRow[]> {
   const c = db();
   const res = await c.execute({
-    sql: `select p.id, p.name, t.code as tour, r.elo, r.matches
+    sql: `select p.id, p.name, p.slug, t.code as tour, r.elo, r.matches,
+                 (p.photo_url is not null) as has_photo
           from player_ratings r
           join players p on p.id = r.player_id
           join tours   t on t.id = p.tour_id
@@ -102,10 +106,12 @@ export async function getRanking(
   });
   return res.rows.map((r) => ({
     playerId: Number(r.id),
+    slug: String(r.slug),
     name: String(r.name),
     tour: String(r.tour),
     elo: Number(r.elo),
     matches: Number(r.matches),
+    hasPhoto: r.has_photo === true,
   }));
 }
 
@@ -113,6 +119,10 @@ export async function getRanking(
 
 export interface MatchRow {
   id: number;
+  p1Id: number;
+  p2Id: number;
+  p1Slug: string;
+  p2Slug: string;
   tour: string;
   tournament: string;
   surface: string | null;
@@ -121,6 +131,9 @@ export interface MatchRow {
   status: string;
   p1Name: string;
   p2Name: string;
+  /** ¿Hay foto para pintar el avatar? (la URL la resuelve /api/foto-jugador) */
+  p1Photo: boolean;
+  p2Photo: boolean;
   probP1: number | null;
   confidence: number | null;
   /** Ganó p1 (1), p2 (0) o sin resolver (null). */
@@ -130,6 +143,10 @@ export interface MatchRow {
 function mapMatch(r: Record<string, unknown>): MatchRow {
   return {
     id: Number(r.id),
+    p1Id: Number(r.p1_id),
+    p2Id: Number(r.p2_id),
+    p1Slug: String(r.p1_slug),
+    p2Slug: String(r.p2_slug),
     tour: String(r.tour),
     tournament: String(r.tournament),
     surface: (r.surface as string | null) ?? null,
@@ -138,6 +155,8 @@ function mapMatch(r: Record<string, unknown>): MatchRow {
     status: String(r.status),
     p1Name: String(r.p1_name),
     p2Name: String(r.p2_name),
+    p1Photo: r.p1_photo === true,
+    p2Photo: r.p2_photo === true,
     probP1: r.prob_p1 === null || r.prob_p1 === undefined ? null : Number(r.prob_p1),
     confidence: r.confidence === null || r.confidence === undefined ? null : Number(r.confidence),
     p1Won: r.p1_won === null || r.p1_won === undefined ? null : Number(r.p1_won),
@@ -145,8 +164,9 @@ function mapMatch(r: Record<string, unknown>): MatchRow {
 }
 
 const MATCH_SELECT = `
-  select m.id, t.code as tour, tr.name as tournament, m.surface, m.round, m.played_on, m.status,
-         p1.name as p1_name, p2.name as p2_name, m.p1_won,
+  select m.id, m.p1_id, m.p2_id, t.code as tour, tr.name as tournament, m.surface, m.round, m.played_on, m.status,
+         p1.name as p1_name, p2.name as p2_name, p1.slug as p1_slug, p2.slug as p2_slug, m.p1_won,
+         (p1.photo_url is not null) as p1_photo, (p2.photo_url is not null) as p2_photo,
          mo.prob_p1, mo.confidence
   from matches m
   join tours t on t.id = m.tour_id
@@ -429,8 +449,10 @@ export async function searchMatches(
   const conds: string[] = [];
   const args: unknown[] = [version];
   if (query.trim()) {
-    conds.push('(p1.name like ? or p2.name like ? or tr.name like ?)');
-    args.push(like, like, like);
+    conds.push(`(p1.name ilike ? or p2.name ilike ? or tr.name ilike ?
+      or exists (select 1 from player_aliases a where a.player_id = p1.id and a.slug ilike ?)
+      or exists (select 1 from player_aliases a where a.player_id = p2.id and a.slug ilike ?))`);
+    args.push(like, like, like, like, like);
   }
   if (tour !== 'all') { conds.push('t.code = ?'); args.push(tour); }
   const where = conds.length ? `where ${conds.join(' and ')}` : '';
@@ -444,6 +466,71 @@ export async function searchMatches(
     args,
   });
   return res.rows.map(mapMatch);
+}
+
+export interface PlayerSearchResult {
+  id: number;
+  slug: string;
+  name: string;
+  tour: string;
+  matches: number;
+  lastPlayed: string | null;
+}
+
+export async function searchPlayers(
+  query: string,
+  tour: 'ATP' | 'WTA' | 'all' = 'all',
+  limit = 12,
+): Promise<PlayerSearchResult[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+  const c = db();
+  const args: unknown[] = [`%${term}%`, `%${term}%`];
+  const tourCondition = tour === 'all' ? '' : 'and t.code = ?';
+  if (tour !== 'all') args.push(tour);
+  args.push(term, limit);
+  const res = await c.execute({
+    sql: `select p.id, p.name, p.slug, t.code as tour, count(distinct m.id) as matches,
+                 max(m.played_on) as last_played
+          from players p
+          join tours t on t.id = p.tour_id
+          left join matches m on m.p1_id = p.id or m.p2_id = p.id
+          where (p.name ilike ? or exists (
+            select 1 from player_aliases a where a.player_id = p.id and a.slug ilike ?
+          )) ${tourCondition}
+          group by p.id, p.name, p.slug, t.code
+          order by case when lower(p.name) = lower(?) then 0 else 1 end,
+                   count(distinct m.id) desc, length(p.name), p.name
+          limit ?`,
+    args,
+  });
+  return res.rows.map((row) => ({
+    id: Number(row.id), slug: String(row.slug), name: String(row.name), tour: String(row.tour),
+    matches: Number(row.matches), lastPlayed: (row.last_played as string | null) ?? null,
+  }));
+}
+
+export async function searchTournaments(
+  query: string,
+  tour: 'ATP' | 'WTA' | 'all' = 'all',
+  limit = 12,
+): Promise<TournamentCard[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+  const c = db();
+  const args: unknown[] = [`%${term}%`];
+  const tourCondition = tour === 'all' ? '' : 'and t.code = ?';
+  if (tour !== 'all') args.push(tour);
+  args.push(limit);
+  const res = await c.execute({
+    sql: `${TOURNAMENT_SELECT}
+          where tr.name ilike ? ${tourCondition}
+          group by tr.id
+          order by tr.season desc, tr.name
+          limit ?`,
+    args,
+  });
+  return res.rows.map(mapTournament);
 }
 
 // ── Ficha de partido ─────────────────────────────────────────────────────────
@@ -509,23 +596,58 @@ export async function getLiveTournaments(): Promise<TournamentCard[]> {
   return res.rows.map(mapTournament);
 }
 
-/** Torneos con partidos programados (próximos), por fecha de inicio. */
+/**
+ * Torneos que TODAVÍA NO HAN EMPEZADO, por fecha de inicio.
+ *
+ * "Próximo" significa que su PRIMER partido es futuro, y eso es lo que
+ * comprueba el `having`. Antes la condición era "le queda algún partido
+ * programado", que también es cierta para un torneo que empezó hace tres días
+ * o que se está jugando ahora mismo: por eso el Canadian Open salía a la vez
+ * en "Torneos en vivo" y en "Torneos próximos" una y otra vez, y por eso
+ * arreglarlo en la vista no servía — la consulta respondía a otra pregunta
+ * distinta de la que hace el título de la sección.
+ *
+ * Los que ya empezaron y siguen vivos son cosa de getOngoingTournaments.
+ */
 export async function getUpcomingTournaments(limit = 12): Promise<TournamentCard[]> {
   const c = db();
-  // Mismo motivo que en getUpcomingMatches: sin el filtro de fecha, un torneo
-  // que terminó hace una semana sigue saliendo como "próximo" mientras le quede
-  // un partido sin reconciliar.
   const res = await c.execute({
     sql: `${TOURNAMENT_SELECT}
           where tr.id in (
             select tournament_id from matches
-            where status = 'scheduled' and played_on::date >= current_date - 1
+            where status = 'scheduled' and played_on::date >= current_date
           )
           group by tr.id
-          order by (
-            select min(played_on) from matches
-            where tournament_id = tr.id and status = 'scheduled' and played_on::date >= current_date - 1
-          ) asc
+          having min(m.played_on)::date > current_date
+          order by min(m.played_on) asc
+          limit ?`,
+    args: [limit],
+  });
+  return res.rows.map(mapTournament);
+}
+
+/**
+ * Torneos EN CURSO: ya empezaron y les quedan partidos por jugar.
+ *
+ * Es la franja que faltaba entre "en vivo" y "próximos". Sin ella, un torneo
+ * que empezó ayer pero que ahora mismo no tiene ningún partido en pista (de
+ * madrugada, entre sesiones) no aparecería en ninguna sección.
+ *
+ * Puede solaparse con "en vivo", que se calcula en tiempo real desde el
+ * proveedor: quien pinta las dos secciones descuenta los que ya salen arriba
+ * usando ESA misma lista, no una consulta paralela que podría discrepar.
+ */
+export async function getOngoingTournaments(limit = 12): Promise<TournamentCard[]> {
+  const c = db();
+  const res = await c.execute({
+    sql: `${TOURNAMENT_SELECT}
+          where tr.id in (
+            select tournament_id from matches
+            where status = 'scheduled' and played_on::date >= current_date
+          )
+          group by tr.id
+          having min(m.played_on)::date <= current_date
+          order by min(m.played_on) asc
           limit ?`,
     args: [limit],
   });
@@ -634,6 +756,50 @@ export interface PlayerStats {
   winRateSurface: number | null;
   /** Resultados recientes: 'W'/'L' del más nuevo al más viejo. */
   recentForm: ('W' | 'L')[];
+  ranking: number | null;
+  rankingPoints: number | null;
+  rankingDate: string | null;
+}
+
+export interface PlayerSurfaceRecord {
+  surface: string;
+  elo: number | null;
+  ratingMatches: number;
+  matches: number;
+  wins: number;
+  winRate: number | null;
+}
+
+export interface PlayerServeProfile {
+  matches: number;
+  acesPerMatch: number | null;
+  doubleFaultsPerMatch: number | null;
+  firstServeIn: number | null;
+  firstServeWon: number | null;
+  secondServeWon: number | null;
+  breakPointsSaved: number | null;
+}
+
+export interface PlayerProfile {
+  id: number;
+  name: string;
+  slug: string;
+  tour: string;
+  country: string | null;
+  /**
+   * Foto y su atribución. Van juntas o no van: son imágenes con licencia
+   * (`credit` apunta al autor) y publicarlas sin acreditar no es una opción.
+   * Ver db/postgres/0002_player_photos.sql.
+   */
+  photo: { credit: string; creditUrl: string } | null;
+  firstSeason: number | null;
+  lastSeason: number | null;
+  lastRanking: { rank: number | null; points: number | null; date: string } | null;
+  stats: PlayerStats;
+  surfaces: PlayerSurfaceRecord[];
+  serve: PlayerServeProfile;
+  eloHistory: { date: string; elo: number }[];
+  matches: MatchRow[];
 }
 
 /** Línea de saque y resto de un jugador en un enfrentamiento concreto. */
@@ -935,6 +1101,16 @@ async function getPlayerStats(playerId: number, name: string, surface: string | 
     args: [playerId, playerId, playerId, playerId],
   })).rows.map((x) => x.r as 'W' | 'L');
 
+  const ranking = (await c.execute({
+    sql: `select played_on,
+                 case when winner_id = ? then winner_rank else loser_rank end rank,
+                 case when winner_id = ? then winner_points else loser_points end points
+          from matches where (winner_id = ? or loser_id = ?)
+            and case when winner_id = ? then winner_rank else loser_rank end is not null
+          order by played_on desc, id desc limit 1`,
+    args: [playerId, playerId, playerId, playerId, playerId],
+  })).rows[0];
+
   return {
     playerId, name,
     eloOverall: eloOverall ? Number(eloOverall.elo) : null,
@@ -944,6 +1120,118 @@ async function getPlayerStats(playerId: number, name: string, surface: string | 
     winRate: n > 0 ? w / n : null,
     winRateSurface: ns > 0 ? ws / ns : null,
     recentForm: recent,
+    ranking: ranking?.rank == null ? null : Number(ranking.rank),
+    rankingPoints: ranking?.points == null ? null : Number(ranking.points),
+    rankingDate: ranking?.played_on == null ? null : String(ranking.played_on),
+  };
+}
+
+/** Ficha integral construida solo con datos observados en TENISMO. */
+export async function getPlayerProfile(playerId: number): Promise<PlayerProfile | null> {
+  const c = db();
+  const player = (await c.execute({
+    sql: `select p.id, p.name, p.slug, p.country, t.code as tour,
+                 p.photo_url, p.photo_credit, p.photo_credit_url
+          from players p join tours t on t.id = p.tour_id where p.id = ?`,
+    args: [playerId],
+  })).rows[0];
+  if (!player) return null;
+
+  const name = String(player.name);
+  const version = await getModelVersion();
+  const [stats, surfaceRows, serveRow, seasonRow, rankingRow, historyRows, matchRows] = await Promise.all([
+    getPlayerStats(playerId, name, null),
+    c.execute({
+      sql: `select x.surface, x.matches, x.wins, r.elo, r.matches as rating_matches
+            from (
+              select m.surface, count(*) matches,
+                     sum(case when (m.p1_id = ? and m.p1_won = 1) or (m.p2_id = ? and m.p1_won = 0) then 1 else 0 end) wins
+              from matches m
+              where m.status = 'completed' and m.p1_won is not null
+                and m.surface is not null and (m.p1_id = ? or m.p2_id = ?)
+              group by m.surface
+            ) x
+            left join player_ratings r on r.player_id = ? and r.surface = x.surface
+            order by x.matches desc`,
+      args: [playerId, playerId, playerId, playerId, playerId],
+    }),
+    c.execute({
+      sql: `select count(*) matches, sum(aces) aces, sum(double_faults) double_faults,
+                   sum(serve_points) serve_points, sum(first_in) first_in,
+                   sum(first_won) first_won, sum(second_won) second_won,
+                   sum(bp_saved) bp_saved, sum(bp_faced) bp_faced
+            from match_stats where player_id = ?`,
+      args: [playerId],
+    }),
+    c.execute({
+      sql: `select min(season) first_season, max(season) last_season
+            from matches where p1_id = ? or p2_id = ?`, args: [playerId, playerId],
+    }),
+    c.execute({
+      sql: `select played_on,
+                   case when winner_id = ? then winner_rank else loser_rank end rank,
+                   case when winner_id = ? then winner_points else loser_points end points
+            from matches
+            where (winner_id = ? or loser_id = ?)
+              and case when winner_id = ? then winner_rank else loser_rank end is not null
+            order by played_on desc, id desc limit 1`,
+      args: [playerId, playerId, playerId, playerId, playerId],
+    }),
+    c.execute({
+      sql: `select played_on, elo_after from rating_history
+            where player_id = ? and surface = 'all'
+            order by played_on desc, id desc limit 60`, args: [playerId],
+    }),
+    c.execute({
+      sql: `${MATCH_SELECT}
+            where m.p1_id = ? or m.p2_id = ?
+            order by case when m.status = 'scheduled' then 0 else 1 end,
+                     case when m.status = 'scheduled' then m.played_on end asc,
+                     m.played_on desc, m.id desc limit 40`,
+      args: [version, playerId, playerId],
+    }),
+  ]);
+
+  const ratio = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator : null;
+  const serve = serveRow.rows[0] ?? {};
+  const serveMatches = Number(serve.matches ?? 0);
+  const servePoints = Number(serve.serve_points ?? 0);
+  const firstIn = Number(serve.first_in ?? 0);
+  const secondPoints = servePoints - firstIn;
+  const bpFaced = Number(serve.bp_faced ?? 0);
+  const lastRanking = rankingRow.rows[0];
+
+  return {
+    id: playerId, name, slug: String(player.slug), tour: String(player.tour),
+    country: (player.country as string | null) ?? null,
+    // Sin crédito no se publica la foto, aunque la URL esté guardada.
+    photo: player.photo_url && player.photo_credit && player.photo_credit_url
+      ? { credit: String(player.photo_credit), creditUrl: String(player.photo_credit_url) }
+      : null,
+    firstSeason: seasonRow.rows[0]?.first_season == null ? null : Number(seasonRow.rows[0]?.first_season),
+    lastSeason: seasonRow.rows[0]?.last_season == null ? null : Number(seasonRow.rows[0]?.last_season),
+    lastRanking: lastRanking ? {
+      rank: lastRanking.rank === null ? null : Number(lastRanking.rank),
+      points: lastRanking.points === null ? null : Number(lastRanking.points),
+      date: String(lastRanking.played_on),
+    } : null,
+    stats,
+    surfaces: surfaceRows.rows.map((row) => {
+      const matches = Number(row.matches), wins = Number(row.wins);
+      return { surface: String(row.surface), elo: row.elo === null ? null : Number(row.elo),
+        ratingMatches: Number(row.rating_matches ?? 0), matches, wins, winRate: ratio(wins, matches) };
+    }),
+    serve: {
+      matches: serveMatches,
+      acesPerMatch: ratio(Number(serve.aces ?? 0), serveMatches),
+      doubleFaultsPerMatch: ratio(Number(serve.double_faults ?? 0), serveMatches),
+      firstServeIn: ratio(firstIn, servePoints),
+      firstServeWon: ratio(Number(serve.first_won ?? 0), firstIn),
+      secondServeWon: ratio(Number(serve.second_won ?? 0), secondPoints),
+      breakPointsSaved: ratio(Number(serve.bp_saved ?? 0), bpFaced),
+    },
+    eloHistory: historyRows.rows.reverse().map((row) => ({ date: String(row.played_on), elo: Number(row.elo_after) })),
+    matches: matchRows.rows.map(mapMatch),
   };
 }
 

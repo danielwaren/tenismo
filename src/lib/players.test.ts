@@ -28,3 +28,40 @@ describe('resolvePlayer — apellido e inicial compartidos (gemelas)', () => {
     expect(cands).toContain('pliskova ka');
   });
 });
+
+/**
+ * Formato abreviado, que es el que usa la propia base (`players.name`) y el
+ * que dan tennis-data y tennisexplorer. Antes se leía al revés —"Giustino"
+ * como nombre de pila y "L." como apellido— y generaba l-g, l-gi, l-giu…, así
+ * que el pronóstico decía "jugador no reconocido" para jugadores que sí están
+ * en la base y tienen Elo. Se detectó con los Challenger.
+ */
+describe('resolvePlayer — nombres ya abreviados', () => {
+  const index = buildIndex([
+    { id: 1, slug: 'giustino-l' },
+    { id: 2, slug: 'dodig-m' },
+    // Slug REAL de la base (id 71): el apellido compuesto lleva ESPACIO, no
+    // guion — así lo genera slugFromShortName desde siempre, verificado contra
+    // producción. Con guion, el test parecía pasar por casualidad y no habría
+    // detectado una regresión real en el emparejamiento.
+    { id: 3, slug: 'auger aliassime-f' },
+  ]);
+  const sinAlias = new Map<string, number>();
+
+  it('casa "Apellido I." con su slug', () => {
+    expect(resolvePlayer('Giustino L.', index, sinAlias)).toMatchObject({ ok: true, playerId: 1 });
+    expect(resolvePlayer('Dodig M.', index, sinAlias)).toMatchObject({ ok: true, playerId: 2 });
+  });
+
+  it('casa apellidos compuestos con guion', () => {
+    expect(resolvePlayer('Auger-Aliassime F.', index, sinAlias)).toMatchObject({ ok: true, playerId: 3 });
+  });
+
+  it('sigue casando el nombre completo', () => {
+    expect(resolvePlayer('Felix Auger-Aliassime', index, sinAlias)).toMatchObject({ ok: true, playerId: 3 });
+  });
+
+  it('no inventa cuando no está', () => {
+    expect(resolvePlayer('Inexistente Z.', index, sinAlias).ok).toBe(false);
+  });
+});

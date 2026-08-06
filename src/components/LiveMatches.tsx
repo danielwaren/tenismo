@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { LiveMatchRow, MatchAces } from '../lib/queries';
+import type { MatchAces } from '../lib/queries';
+import type { LiveDisplayMatch, LiveProviderStatus } from '../lib/live';
 import { SURFACE_ES } from '../lib/format';
 import { setCells, currentLeader } from '../lib/score';
+import { matchPath, playerPath } from '../lib/urls';
 
 /**
  * Tarjetas de partidos EN VIVO, con etiqueta "VIVO" y marcador en directo.
@@ -18,7 +20,7 @@ function pulse() {
   </span>;
 }
 
-function Card({ m, ace }: { m: LiveMatchRow; ace?: MatchAces }) {
+function Card({ m, ace }: { m: LiveDisplayMatch; ace?: MatchAces }) {
   // El marcador se pinta SET A SET, en columnas alineadas entre los dos
   // jugadores. Antes cada uno llevaba un número suelto ("2" arriba, "3" abajo)
   // sin decir si eran sets o juegos y sin señalar a nadie como líder: el
@@ -28,11 +30,8 @@ function Card({ m, ace }: { m: LiveMatchRow; ace?: MatchAces }) {
   const p1Lead = leader === 1;
   const p2Lead = leader === 2;
   const enCurso = cells.some((c) => c.inPlay);
-  return (
-    <a
-      href={`/match/${m.id}`}
-      className="block rounded-xl border border-live/40 bg-live/[0.06] p-3.5 no-underline transition hover:border-live/60"
-    >
+  const content = (
+    <>
       <div className="mb-2 flex items-center justify-between text-2xs">
         <span className="flex items-center gap-1.5 font-semibold text-live">{pulse()} EN VIVO</span>
         <span className="text-ink-faint">
@@ -40,11 +39,13 @@ function Card({ m, ace }: { m: LiveMatchRow; ace?: MatchAces }) {
         </span>
       </div>
       <div className="space-y-1">
-        {([['p1', m.p1Name, p1Lead], ['p2', m.p2Name, p2Lead]] as const).map(([lado, nombre, lidera]) => (
+        {([['p1', m.p1Name, p1Lead, m.p1Id, m.p1Slug], ['p2', m.p2Name, p2Lead, m.p2Id, m.p2Slug]] as const).map(([lado, nombre, lidera, playerId, playerSlug]) => (
           <div key={lado} className="flex items-center justify-between gap-2">
-            <span className={`truncate text-sm ${lidera ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
-              {lidera ? '▸ ' : '  '}{nombre}
-            </span>
+            {playerId === null ? (
+              <span className={`truncate text-sm ${lidera ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{lidera ? '▸ ' : '  '}{nombre}</span>
+            ) : (
+              <a href={playerPath(playerId, playerSlug)} className={`truncate text-sm underline-offset-2 hover:text-court hover:underline ${lidera ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{lidera ? '▸ ' : '  '}{nombre}</a>
+            )}
             {cells.length ? (
               <span className="flex shrink-0 gap-1.5">
                 {cells.map((c, i) => {
@@ -100,19 +101,33 @@ function Card({ m, ace }: { m: LiveMatchRow; ace?: MatchAces }) {
           )}
         </div>
       )}
-    </a>
+      {m.resolution !== 'linked' && (
+        <p className="mt-2 border-t border-live/20 pt-1.5 text-2xs text-ink-faint">
+          Marcador disponible · perfil, cuotas y pronóstico pendientes de vinculación.
+        </p>
+      )}
+      {m.internalId !== null && <a href={matchPath({ id: m.internalId, p1Slug: m.p1Slug, p2Slug: m.p2Slug })} className="mt-2 inline-flex text-2xs text-court-ink no-underline hover:underline">Ver partido →</a>}
+    </>
   );
+  const className = 'block rounded-xl border border-live/40 bg-live/[0.06] p-3.5 no-underline transition hover:border-live/60';
+  return <article className={className}>{content}</article>;
 }
 
 export default function LiveMatches({
   initial = [],
   initialAces = {},
+  initialStatus = 'ok',
+  initialCoverage = { received: 0, linked: 0, unresolved: 0, providersAvailable: 2 },
 }: {
-  initial?: LiveMatchRow[];
+  initial?: LiveDisplayMatch[];
   initialAces?: Record<number, MatchAces>;
+  initialStatus?: LiveProviderStatus;
+  initialCoverage?: { received: number; linked: number; unresolved: number; providersAvailable: number };
 }) {
-  const [matches, setMatches] = useState<LiveMatchRow[]>(initial);
+  const [matches, setMatches] = useState<LiveDisplayMatch[]>(initial);
   const [aces, setAces] = useState<Record<number, MatchAces>>(initialAces);
+  const [status, setStatus] = useState<LiveProviderStatus>(initialStatus);
+  const [coverage, setCoverage] = useState(initialCoverage);
   const [agoSec, setAgoSec] = useState(0);
 
   useEffect(() => {
@@ -124,6 +139,8 @@ export default function LiveMatches({
         if (!alive) return;
         setMatches(data.matches ?? []);
         setAces(data.aces ?? {});
+        setStatus(data.status ?? 'unavailable');
+        setCoverage(data.coverage ?? initialCoverage);
         setAgoSec(0);
       } catch { /* red intermitente: se reintenta en el siguiente tick */ }
     };
@@ -140,21 +157,30 @@ export default function LiveMatches({
     };
   }, []);
 
-  if (!matches.length) return null;
-
   return (
-    <section className="mb-8">
+    <section className="mb-10">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
-          {pulse()} En vivo
-        </h2>
+        <div><p className="mb-1 text-2xs font-semibold uppercase tracking-[0.18em] text-live">Ahora mismo</p><h2 className="flex items-center gap-2 font-display text-xl font-semibold sm:text-2xl">{pulse()} Partidos en vivo</h2></div>
         <span className="text-2xs tabular-nums text-ink-faint" aria-live="polite">
           actualizado hace {agoSec < 60 ? `${agoSec}s` : `${Math.floor(agoSec / 60)} min`}
         </span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {matches.map((m) => <Card key={m.id} m={m} ace={aces[m.id]} />)}
-      </div>
+      {status !== 'ok' && (
+        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+          {status === 'unavailable'
+            ? 'El proveedor en vivo no está disponible. Conservamos la última información válida cuando existe.'
+            : `Cobertura parcial: ${coverage.linked} de ${coverage.received} partidos vinculados; los demás se muestran sin pronóstico.`}
+        </p>
+      )}
+      {matches.length ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {matches.map((m) => <Card key={m.id} m={m} ace={m.internalId === null ? undefined : aces[m.internalId]} />)}
+        </div>
+      ) : (
+        <div className="card p-4 text-sm text-ink-muted">
+          {status === 'unavailable' ? 'No fue posible comprobar los partidos en vivo.' : 'No hay partidos en vivo ahora mismo.'}
+        </div>
+      )}
     </section>
   );
 }

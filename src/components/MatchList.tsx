@@ -1,5 +1,7 @@
 import type { MatchRow, MatchAces } from '../lib/queries';
 import { SURFACE_ES, SURFACE_DOT, fmtDate, tourChip } from '../lib/format';
+import { matchPath, playerPath } from '../lib/urls';
+import PlayerAvatar from './PlayerAvatar';
 
 /**
  * Lista de partidos, reutilizada en el panel, el buscador y los cuadros.
@@ -72,13 +74,13 @@ export default function MatchList({
   }
 
   return (
-    <ul className="grid gap-2 sm:grid-cols-2">
+    <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {matches.map((m) => {
         const played = m.status === 'completed';
         const p1Won = m.p1Won === 1;
         return (
           <li key={m.id}>
-            <a href={`/match/${m.id}`} className="card-hover block p-3.5 no-underline">
+            <article className="card-hover group flex h-full flex-col overflow-hidden p-4">
               <div className="flex items-center justify-between gap-3 text-2xs text-ink-faint">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className={`chip ${tourChip(m.tour)}`}>{m.tour}</span>
@@ -97,27 +99,41 @@ export default function MatchList({
                 </span>
               </div>
 
-              <div className="mt-2.5 space-y-1">
-                <div className={`flex items-center gap-2 text-sm ${played && p1Won ? 'font-semibold text-ink' : 'text-ink'}`}>
+              {/* La cara identifica el partido más rápido que el nombre
+                  abreviado ("Alcaraz C."), que es lo único que da la fuente. */}
+              <div className="mt-4 space-y-2">
+                <div className={`flex items-center gap-2.5 text-sm ${played && p1Won ? 'font-semibold text-ink' : 'text-ink'}`}>
+                  <PlayerAvatar name={m.p1Name} playerId={m.p1Id} hasPhoto={m.p1Photo} size="sm" />
+                  <a href={playerPath(m.p1Id, m.p1Slug)} className="min-w-0 flex-1 truncate text-inherit underline-offset-2 hover:text-court hover:underline">
+                    {m.p1Name}
+                  </a>
                   {played && (p1Won
-                    ? <span className="text-court">●</span>
-                    : <span className="text-ink-faint">○</span>)}
-                  <span className="truncate">{m.p1Name}</span>
+                    ? <span className="shrink-0 text-court" title="Ganó">●</span>
+                    : <span className="shrink-0 text-ink-faint" title="Perdió">○</span>)}
                 </div>
-                <div className={`flex items-center gap-2 text-sm ${played && !p1Won ? 'font-semibold text-ink' : 'text-ink'}`}>
+                <div className="flex items-center gap-2 pl-1" aria-hidden="true"><span className="h-px flex-1 bg-line/60" /><span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-ink-faint">vs</span><span className="h-px flex-1 bg-line/60" /></div>
+                <div className={`flex items-center gap-2.5 text-sm ${played && !p1Won ? 'font-semibold text-ink' : 'text-ink'}`}>
+                  <PlayerAvatar name={m.p2Name} playerId={m.p2Id} hasPhoto={m.p2Photo} size="sm" />
+                  <a href={playerPath(m.p2Id, m.p2Slug)} className="min-w-0 flex-1 truncate text-inherit underline-offset-2 hover:text-court hover:underline">
+                    {m.p2Name}
+                  </a>
                   {played && (!p1Won
-                    ? <span className="text-court">●</span>
-                    : <span className="text-ink-faint">○</span>)}
-                  <span className="truncate">{m.p2Name}</span>
+                    ? <span className="shrink-0 text-court" title="Ganó">●</span>
+                    : <span className="shrink-0 text-ink-faint" title="Perdió">○</span>)}
                 </div>
               </div>
 
+              <div className="mt-auto pt-2">
               {m.probP1 !== null
                 ? <ProbBar probP1={m.probP1} />
                 : <p className="mt-2 text-2xs text-ink-faint">Sin pronóstico del modelo.</p>}
 
               {aces?.[m.id] && <Aces est={aces[m.id]} p1={m.p1Name} p2={m.p2Name} />}
-            </a>
+              <a href={matchPath(m)} className="mt-3 flex items-center justify-between rounded-lg border border-line/70 bg-bg/35 px-3 py-2 text-xs font-medium text-ink-muted no-underline group-hover:border-court/30 group-hover:text-court-ink">
+                <span>Ficha completa</span><span aria-hidden="true">→</span>
+              </a>
+              </div>
+            </article>
           </li>
         );
       })}

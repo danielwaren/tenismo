@@ -67,9 +67,15 @@ async function resolveTwoPlayers(
   playerOne: string,
   playerTwo: string,
 ): Promise<{ p1: number; p2: number } | null> {
-  if (tour !== 'ATP' && tour !== 'WTA') return null; // Challenger/ITF: fuera del alcance del Elo actual.
+  // Challenger se resuelve contra ATP a propósito: promote-challenger.ts metió
+  // sus 33.556 partidos en el circuito ATP (distinguidos por series, no por
+  // circuito) justamente para que sus jugadores tengan UN solo Elo, y
+  // train-elo.ts ya los entrena. Tratarlo como circuito aparte devolvía "el
+  // modelo no tiene datos de Challenger" para jugadores que sí los tienen.
+  const codigo = tour === 'Challenger' ? 'ATP' : tour;
+  if (codigo !== 'ATP' && codigo !== 'WTA') return null; // ITF/Other: sin cobertura.
   const c = db();
-  const tourId = Number((await c.execute({ sql: 'select id from tours where code = ?', args: [tour] })).rows[0]?.id);
+  const tourId = Number((await c.execute({ sql: 'select id from tours where code = ?', args: [codigo] })).rows[0]?.id);
   if (!tourId) return null;
 
   const rows = (
@@ -144,8 +150,8 @@ export async function getModelForecast(req: ForecastRequest): Promise<ModelForec
     return {
       available: false,
       unavailableReason:
-        req.tour !== 'ATP' && req.tour !== 'WTA'
-          ? 'El modelo de Tenismo solo cubre circuito ATP/WTA — no tiene datos de Challenger/ITF.'
+        req.tour !== 'ATP' && req.tour !== 'WTA' && req.tour !== 'Challenger'
+          ? 'El modelo de Tenismo cubre ATP, WTA y Challenger — no tiene datos de ITF.'
           : 'No se pudo identificar a uno de los dos jugadores en la base de Tenismo (nombre no reconocido).',
       modelVersion,
     };

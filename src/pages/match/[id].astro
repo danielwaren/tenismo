@@ -2,15 +2,18 @@
 import Base from '../../layouts/Base.astro';
 import MatchDetailView from '../../components/MatchDetail.tsx';
 import { getMatchDetail } from '../../lib/queries';
+import { idFromReadablePath, matchPath } from '../../lib/urls';
 
 export const prerender = false;
 
-const id = Number(Astro.params.id);
-const match = Number.isFinite(id) ? await getMatchDetail(id) : null;
+const id = idFromReadablePath(Astro.params.id);
+const match = id !== null ? await getMatchDetail(id) : null;
 
 if (!match) {
   return new Response(null, { status: 404, statusText: 'Partido no encontrado' });
 }
+const canonicalPath = matchPath(match);
+if (Astro.url.pathname !== canonicalPath) return Astro.redirect(canonicalPath, 301);
 ---
 
 <Base title={`${match.p1Name} vs ${match.p2Name} · Tennis Trader Intelligence`}>

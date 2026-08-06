@@ -76,7 +76,7 @@ async function main() {
 
   const matchStmts: { sql: string; args: unknown[] }[] = [];
   const unmatchedStmts: { sql: string; args: unknown[] }[] = [];
-  const pendientes: { sourceKey: string; sel: 'home' | 'away'; odds: any }[] = [];
+  const pendientes: { sourceKey: string; sel: 'p1' | 'p2'; odds: any }[] = [];
   // Total de juegos y hándicap: se guardan aparte porque llevan `line` y, en
   // el caso del hándicap, el signo depende de p1EsHome (se orienta al vuelo).
   const pendientesTotal: { sourceKey: string; lado: 'over' | 'under'; odds: any; line: number }[] = [];

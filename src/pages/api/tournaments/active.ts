@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getLiveTournaments, getUpcomingTournaments } from '../../../lib/queries';
+import { getLiveTournaments, getOngoingTournaments, getUpcomingTournaments } from '../../../lib/queries';
 
 export const prerender = false;
 
@@ -20,14 +20,20 @@ const json = (body: unknown, status = 200) =>
  * pulsación.
  */
 export const GET: APIRoute = async () => {
-  const [live, upcoming] = await Promise.all([getLiveTournaments(), getUpcomingTournaments(20)]);
+  // Los EN CURSO son imprescindibles aquí, no un extra: casi siempre se apuesta
+  // a un torneo que ya empezó. "Próximos" son solo los que aún no arrancan.
+  const [live, ongoing, upcoming] = await Promise.all([
+    getLiveTournaments(),
+    getOngoingTournaments(20),
+    getUpcomingTournaments(20),
+  ]);
 
   const seen = new Set<number>();
   const salida: { id: number; name: string; tour: string; surface: string | null; live: boolean }[] = [];
 
   // Los en directo primero: es lo que se está apostando ahora mismo.
-  for (const t of [...live, ...upcoming]) {
-    if (seen.has(t.id)) continue; // un torneo en directo también sale en "próximos"
+  for (const t of [...live, ...ongoing, ...upcoming]) {
+    if (seen.has(t.id)) continue; // un torneo en directo también sale en "en curso"
     seen.add(t.id);
     salida.push({
       id: t.id,

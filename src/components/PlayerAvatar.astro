@@ -1,0 +1,52 @@
+---
+import { AVATAR_SIZES, avatarInitials, avatarPhotoSrc, avatarStyles, type AvatarSize } from '../lib/avatar';
+
+/**
+ * Foto de un jugador, con reserva a iniciales.
+ *
+ * La mayoría de los jugadores NO tiene foto (solo se conocen las de las fichas
+ * de Tennis Abstract ya rastreadas, y hay 3.854 jugadores en base), así que el
+ * caso sin imagen es el normal, no la excepción: las iniciales tienen que
+ * verse igual de intencionadas que la foto, no como un hueco roto. El color
+ * sale del nombre, así que el mismo jugador es siempre del mismo color.
+ *
+ * La lógica está en src/lib/avatar.ts, compartida con la versión React.
+ */
+interface Props {
+  name: string;
+  playerId?: number | null;
+  hasPhoto?: boolean;
+  size?: AvatarSize;
+  class?: string;
+}
+const { name, playerId, hasPhoto = false, size = 'md', class: klass = '' } = Astro.props;
+
+const S = AVATAR_SIZES[size];
+const src = avatarPhotoSrc(playerId, hasPhoto);
+const estilos = avatarStyles(name);
+const css = (o: Record<string, string>) =>
+  Object.entries(o).map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase())}:${v}`).join(';');
+---
+
+{src ? (
+  <img
+    src={src}
+    alt={`Foto de ${name}`}
+    width={S.px}
+    height={S.px}
+    loading="lazy"
+    decoding="async"
+    class:list={[S.box, 'shrink-0 rounded-full border border-line object-cover', klass]}
+    style={css(estilos.photo)}
+  />
+) : (
+  <span
+    aria-hidden="true"
+    class:list={[
+      S.box, S.text,
+      'grid shrink-0 place-items-center rounded-full border border-line font-display font-semibold',
+      klass,
+    ]}
+    style={css(estilos.fallback)}
+  >{avatarInitials(name)}</span>
+)}

@@ -1,5 +1,6 @@
-import type { MatchDetail, PlayerStats } from '../lib/queries';
+import type { MatchDetail } from '../lib/queries';
 import { surfaceLabel, fmtDate, pct, signedPct, SURFACE_ES, tourChip } from '../lib/format';
+import { playerPath } from '../lib/urls';
 
 /**
  * Ficha de partido. Reúne todo lo que la fuente da de verdad: marcador set por
@@ -79,15 +80,15 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
         </div>
 
         <div className="px-5 py-4">
-          {[{ name: m.p1Name, won: played && p1Won, prob: pctP1, sets: m.sets.map((s) => s.p1) },
-            { name: m.p2Name, won: played && !p1Won, prob: pctP1 === null ? null : 100 - pctP1, sets: m.sets.map((s) => s.p2) }]
+          {[{ id: m.p1Id, slug: m.p1Slug, name: m.p1Name, won: played && p1Won, prob: pctP1, sets: m.sets.map((s) => s.p1) },
+            { id: m.p2Id, slug: m.p2Slug, name: m.p2Name, won: played && !p1Won, prob: pctP1 === null ? null : 100 - pctP1, sets: m.sets.map((s) => s.p2) }]
             .map((row, i) => (
             <div key={i} className={`flex items-center justify-between gap-3 py-2 ${i === 0 ? 'border-b border-line/60' : ''}`}>
               <div className="flex min-w-0 items-center gap-2">
                 {played && (row.won
                   ? <span className="text-court" aria-label="Ganador">●</span>
                   : <span className="text-ink-faint">○</span>)}
-                <span className={`truncate text-lg ${row.won ? 'font-semibold text-ink' : 'text-ink'} font-display`}>{row.name}</span>
+                <a href={playerPath(row.id, row.slug)} className={`truncate font-display text-lg no-underline hover:text-court hover:underline ${row.won ? 'font-semibold text-ink' : 'text-ink'}`}>{row.name}</a>
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 {row.sets.length > 0 && (
@@ -122,6 +123,8 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
           <span className="truncate font-display text-sm font-semibold text-ink">{s2.name}</span>
         </div>
         <div className="divide-y divide-line/50">
+          <StatRow label="Ranking (último dato)" a={s1.ranking === null ? '—' : `#${s1.ranking}`} b={s2.ranking === null ? '—' : `#${s2.ranking}`}
+            aBetter={s1.ranking !== null && (s2.ranking === null || s1.ranking < s2.ranking)} bBetter={s2.ranking !== null && (s1.ranking === null || s2.ranking < s1.ranking)} />
           <StatRow label="Elo global" a={num(s1.eloOverall)} b={num(s2.eloOverall)}
             aBetter={(s1.eloOverall ?? 0) > (s2.eloOverall ?? 0)} bBetter={(s2.eloOverall ?? 0) > (s1.eloOverall ?? 0)} />
           {m.surface && (
@@ -142,6 +145,7 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
               aBetter={m.gamesP1 > m.gamesP2} bBetter={m.gamesP2 > m.gamesP1} />
           )}
         </div>
+        {(s1.rankingDate || s2.rankingDate) && <p className="mt-2 text-center text-2xs text-ink-faint">Ranking oficial más reciente disponible: {s1.rankingDate ? `${s1.name} al ${fmtDate(s1.rankingDate)}` : `${s1.name} sin dato`} · {s2.rankingDate ? `${s2.name} al ${fmtDate(s2.rankingDate)}` : `${s2.name} sin dato`}.</p>}
         <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-t border-line/50 pt-3">
           <div className="flex justify-end"><FormDots form={s1.recentForm} /></div>
           <span className="text-2xs uppercase tracking-wide text-ink-faint">Forma</span>

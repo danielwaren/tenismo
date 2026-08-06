@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getLiveNow } from '../../lib/live';
+import { getLiveSnapshot } from '../../lib/live';
 import { getAceEstimates } from '../../lib/queries';
 
 export const prerender = false;
@@ -10,11 +10,13 @@ export const prerender = false;
  * y uno que acaba de terminar desaparece.
  */
 export const GET: APIRoute = async () => {
-  const matches = await getLiveNow();
+  const snapshot = await getLiveSnapshot();
+  const matches = snapshot.matches;
   // Los aces viajan con el marcador: la tarjeta de en vivo se refresca sola cada
   // 20 s y, si no vinieran aquí, la proyección desaparecería en el primer tick.
-  const aces = Object.fromEntries(await getAceEstimates(matches.map((m) => m.id)));
-  return new Response(JSON.stringify({ matches, aces, at: new Date().toISOString() }), {
+  const ids = matches.flatMap((m) => m.internalId === null ? [] : [m.internalId]);
+  const aces = Object.fromEntries(await getAceEstimates(ids));
+  return new Response(JSON.stringify({ ...snapshot, aces }), {
     headers: {
       'content-type': 'application/json',
       // Sin caché intermedia: el dato es efímero por definición.

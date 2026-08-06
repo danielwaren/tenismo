@@ -37,6 +37,7 @@ import { bulkLinkStmts, type TaLink } from './lib/links';
 import {
   fetchPlayerPage,
   parsePlayerPage,
+  extractPhoto,
   taNameFromFullName,
   taSlug,
   sameScore,
@@ -454,6 +455,16 @@ async function main() {
                 on conflict (slug, player_id) do nothing`,
           args: [playerId, parsed.fullName, taSlug(parsed.fullName), TA_SOURCE],
         });
+
+        // Foto, si la ficha trae una. Sale del HTML que YA se ha descargado:
+        // no cuesta ni una petición más ni toca el límite de Cloudflare.
+        const foto = extractPhoto(html);
+        if (foto) {
+          playerStmts.push({
+            sql: `update players set photo_url = ?, photo_credit = ?, photo_credit_url = ? where id = ?`,
+            args: [foto.url, foto.credit, foto.creditUrl, playerId],
+          });
+        }
       }
       playerStmts.push({ sql: `update ta_frontier set fetched = 1 where ta_name = ?`, args: [f.taName] });
 

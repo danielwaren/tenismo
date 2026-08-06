@@ -32,11 +32,10 @@ name: Estadisticas Tennis Abstract
 #   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME,
 #   SUPABASE_DB_USER, SUPABASE_DB_PASSWORD — ver docs/12-migracion-supabase.md
 
+# PAUSADO: robots.txt no equivale a una licencia de reutilización. Este workflow
+# queda manual y además exige una variable de repositorio que documente que se
+# obtuvo autorización explícita. Ver docs/audit/TENNIS_ABSTRACT_INTEGRATION.md.
 on:
-  schedule:
-    # 05:00 UTC, antes de la ingesta diaria (06:30): así los partidos que entran
-    # esa mañana ya encuentran creado el perfil de saque de sus jugadores.
-    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       max:
@@ -56,6 +55,7 @@ concurrency:
 
 jobs:
   estadisticas:
+    if: ${{ vars.TENNIS_ABSTRACT_AUTHORIZED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

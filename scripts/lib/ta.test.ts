@@ -9,6 +9,7 @@ import {
   parseScore,
   sameScore,
   isoDate,
+  extractPhoto,
 } from './ta';
 
 /**
@@ -229,5 +230,45 @@ describe('isoDate', () => {
     expect(isoDate('20260629')).toBe('2026-06-29');
     expect(isoDate('')).toBeNull();
     expect(isoDate('2026')).toBeNull();
+  });
+});
+
+describe('extractPhoto', () => {
+  const ficha = (extra: string) => `var fullname = 'Carlos Alcaraz';\n${extra}`;
+
+  it('construye la URL como la propia ficha', () => {
+    const p = extractPhoto(
+      ficha(`var photog = '350z33';
+             var photog_credit = '350z33';
+             var photog_link = 'https://en.wikipedia.org/wiki/User:350z33';`),
+    );
+    expect(p).toEqual({
+      url: 'https://www.tennisabstract.com/photos/carlos_alcaraz-350z33.jpg',
+      credit: '350z33',
+      creditUrl: 'https://en.wikipedia.org/wiki/User:350z33',
+    });
+  });
+
+  it('nombres compuestos van con guion bajo', () => {
+    const html = `var fullname = 'Jan Lennard Struff';
+      var photog = 'foo'; var photog_credit = 'Foo'; var photog_link = 'https://x.test/foo';`;
+    expect(extractPhoto(html)?.url).toBe(
+      'https://www.tennisabstract.com/photos/jan_lennard_struff-foo.jpg',
+    );
+  });
+
+  // La ficha misma no pinta foto si photog está vacío o no existe.
+  it('sin fotógrafo no hay foto', () => {
+    expect(extractPhoto(ficha(`var photog = '';`))).toBeNull();
+    expect(extractPhoto(ficha(''))).toBeNull();
+  });
+
+  // Son fotos con licencia: sin a quién acreditar, no se usan.
+  it('sin enlace de atribución no se devuelve la foto', () => {
+    expect(extractPhoto(ficha(`var photog = '350z33'; var photog_credit = '350z33';`))).toBeNull();
+  });
+
+  it('sin fullname no hay nada que construir', () => {
+    expect(extractPhoto(`var photog = 'x'; var photog_link = 'https://x.test';`)).toBeNull();
   });
 });

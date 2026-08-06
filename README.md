@@ -12,15 +12,16 @@ simulado y cuotas reales.
 | Pieza | Elección | Nota |
 |---|---|---|
 | Frontend | Astro + React (islands) + Tailwind | mismo patrón que el proyecto de fútbol |
-| Base de datos | **Turso (libSQL/SQLite)** vía `@libsql/client` | no Supabase |
-| Trabajos programados | **GitHub Actions** | Turso no tiene pg_cron ni Edge Functions |
+| Base de datos | **PostgreSQL (Supabase)** vía `postgres.js` | solo servidor |
+| Trabajos programados | **GitHub Actions** | ingesta y modelo fuera de la petición web |
 | Despliegue | Vercel | `output: 'server'` |
 
 ### Qué cambia respecto al proyecto de fútbol
 
-- **Sin RLS.** El token de Turso da acceso total. El navegador NUNCA habla con
-  la base: todo pasa por páginas SSR y API routes. (En fútbol el cliente sí leía
-  Supabase, protegido por RLS.)
+- **Acceso solo servidor.** El navegador nunca habla directamente con la base:
+  todo pasa por páginas SSR y rutas API. Las rutas de banca todavía no tienen
+  autenticación ni aislamiento por usuario y no deben publicarse hasta resolver
+  el P0 descrito en `docs/audit/SECURITY_AUDIT.md`.
 - **Sin cron en la base.** No hay `pg_cron` ni `pg_net`: la ingesta y el
   reentrenamiento los dispara `.github/workflows/ingesta-diaria.yml`.
 - **Sin empate.** El resultado es binario, así que la logística Elo da
@@ -31,15 +32,15 @@ simulado y cuotas reales.
 
 ```bash
 npm install
-cp .env.example .env      # por defecto usa un fichero local, sin cuenta Turso
+cp .env.example .env      # configura una base PostgreSQL/Supabase de desarrollo
 npm run db:migrate        # crea el esquema
 npm run db:ingest         # descarga e ingiere 2013..año actual (ATP + WTA)
 npm run db:elo            # entrena el Elo y guarda el backtest
 npm run dev
 ```
 
-Para trabajar contra Turso en vez del fichero local, basta con cambiar
-`TURSO_DATABASE_URL` y añadir `TURSO_AUTH_TOKEN`: el resto del código es idéntico.
+La aplicación requiere las variables `SUPABASE_DB_*` descritas en
+`.env.example`; no existe actualmente una base local de respaldo.
 
 ### Comandos
 
@@ -152,4 +153,5 @@ en vez de estimar.
 Detalle completo, reglas contables y cómo conectar un proveedor de IA:
 [docs/11-mis-apuestas.md](docs/11-mis-apuestas.md).
 
-Puesta en producción (GitHub + Turso): [docs/02-git-y-turso.md](docs/02-git-y-turso.md).
+La documentación histórica de Turso se conserva como registro de migración. La
+arquitectura vigente y los riesgos de producción están en `docs/audit/`.

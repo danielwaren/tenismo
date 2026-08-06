@@ -1,38 +1,52 @@
 ---
 import Base from '../layouts/Base.astro';
 import Buscador from '../components/Buscador.tsx';
-import MatchList from '../components/MatchList.tsx';
+import MatchBoard from '../components/MatchBoard.tsx';
 import LiveMatches from '../components/LiveMatches.tsx';
 import TournamentCards from '../components/TournamentCards.astro';
+import ChallengerCalendar from '../components/ChallengerCalendar.astro';
+import LiveTournamentCards from '../components/LiveTournamentCards.astro';
 import {
   getStats, getUpcomingMatches, getPaperSummary,
-  getLiveTournaments, getUpcomingTournaments, getRecentTournaments,
+  getUpcomingTournaments, getOngoingTournaments, getRecentTournaments,
   getAceEstimates,
 } from '../lib/queries';
-import { getLiveNow } from '../lib/live';
+import { getLiveSnapshot } from '../lib/live';
+import { getChallengerCalendar } from '../lib/challenger';
 
 export const prerender = false;
 
 // El "en vivo" se consulta a ESPN en el momento (no la foto del último cron), y
 // va PRIMERO para que los contadores de torneos que se calculan después ya vean
 // los partidos en curso actualizados.
-const liveMatches = await getLiveNow();
+const liveSnapshot = await getLiveSnapshot();
+const liveMatches = liveSnapshot.matches;
 
-const [stats, upcoming, paper, liveTourns, upcomingTourns, recentTourns] =
+const [stats, upcoming, paper, upcomingTourns, ongoingTournsRaw, recentTourns, challenger] =
   await Promise.all([
     getStats(),
-    getUpcomingMatches(12),
+    getUpcomingMatches(40),
     getPaperSummary(),
-    getLiveTournaments(),
-    getUpcomingTournaments(9),
+    getUpcomingTournaments(20),
+    getOngoingTournaments(20),
     getRecentTournaments(9),
+    getChallengerCalendar(),
   ]);
+
+// Los que ya salen en "en vivo" no se repiten en "en curso". Se descuentan con
+// la lista que REALMENTE se pinta arriba (el snapshot en tiempo real), no con
+// una consulta paralela: así es imposible por construcción que las dos
+// secciones discrepen y un torneo aparezca duplicado.
+const idsEnVivo = new Set(
+  liveSnapshot.tournaments.map((t) => t.internalId).filter((id): id is number => id !== null),
+);
+const ongoingTourns = ongoingTournsRaw.filter((t) => !idsEnVivo.has(t.id));
 
 // Aces proyectados de los partidos que se muestran, en una sola consulta para
 // las dos secciones. Solo vuelven los que tienen muestra suficiente en los dos
 // jugadores, así que el mapa suele ser parcial.
 const aces = Object.fromEntries(
-  await getAceEstimates([...upcoming.map((m) => m.id), ...liveMatches.map((m) => m.id)]),
+  await getAceEstimates([...upcoming.map((m) => m.id), ...liveMatches.flatMap((m) => m.internalId === null ? [] : [m.internalId])]),
 );
 
 // Antigüedad de los datos. Si la ingesta se para, la web seguiría pintando las
@@ -57,7 +71,28 @@ const cards = [
 ];
 ---
 
-<Base subtitle="Elo por superficie para ATP y WTA, contrastado contra cuotas reales." active="home">
+<Base active="home">
+  <section class="court-grid relative mb-8 overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-surface via-bg to-court/10 p-5 sm:p-8">
+    <img src="/images/tennis-court-ryan-searle.jpg" alt="" class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.12] mix-blend-luminosity" loading="eager" fetchpriority="high" />
+    <div class="pointer-events-none absolute inset-0 bg-gradient-to-r from-bg via-bg/90 to-bg/35"></div>
+    <div class="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-court/15 blur-3xl"></div>
+    <div class="pointer-events-none absolute bottom-0 right-5 hidden h-40 w-72 rotate-[-7deg] rounded-t-[50%] border-x border-t border-court/15 sm:block"></div>
+    <div class="relative max-w-3xl">
+      <div class="mb-5 flex flex-wrap items-center gap-2">
+        <span class="chip border border-live/30 bg-live/10 text-live"><span class="h-1.5 w-1.5 animate-pulse rounded-full bg-live"></span> Cobertura en vivo</span>
+        <span class="chip border border-line bg-bg/50 text-ink-muted">ATP · WTA · Challenger</span>
+      </div>
+      <p class="eyebrow">El tenis, explicado con datos</p>
+      <h1 class="mt-3 max-w-2xl font-display text-4xl font-semibold leading-[0.98] tracking-[-0.045em] text-ink sm:text-6xl">
+        Cada partido.<br /><span class="text-court">Toda la lectura.</span>
+      </h1>
+      <p class="mt-5 max-w-xl text-sm leading-relaxed text-ink-muted sm:text-base">Partidos en vivo, calendarios y perfiles conectados con rankings, Elo por superficie, forma reciente y probabilidades auditables.</p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a href="#proximos" class="rounded-xl bg-court px-4 py-2.5 text-sm font-semibold text-bg no-underline shadow-[0_0_30px_hsl(var(--court)/.2)] hover:bg-court/90">Ver próximos partidos</a>
+        <a href="#buscar" class="rounded-xl border border-line bg-bg/50 px-4 py-2.5 text-sm font-medium text-ink no-underline hover:border-court/40">Buscar jugador</a>
+      </div>
+    </div>
+  </section>
   {datosViejos && (
     <div class="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
       <span class="font-semibold text-amber-400">Datos desactualizados</span>
@@ -74,52 +109,55 @@ const cards = [
     </p>
   )}
 
-  <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+  <section class="mb-10 grid grid-cols-2 gap-3 xl:grid-cols-4">
     {cards.map((c) => (
-      <div class="card p-4">
+      <div class="glass-panel relative overflow-hidden p-4 sm:p-5">
+        <span class="absolute right-3 top-3 h-1.5 w-1.5 rounded-full bg-court/70"></span>
         <div class="text-xs uppercase tracking-wide text-ink-muted">{c.label}</div>
-        <div class="mt-1 font-mono text-2xl tabular-nums text-court">{c.value}</div>
+        <div class="mt-2 font-display text-3xl font-semibold tabular-nums text-ink">{c.value}</div>
         <div class="mt-0.5 text-xs text-ink-faint">{c.hint}</div>
       </div>
     ))}
   </section>
 
   {/* En vivo: se hidrata y se auto-refresca; si no hay nada, no pinta nada. */}
-  <LiveMatches client:load initial={liveMatches} initialAces={aces} />
+  <LiveMatches client:load initial={liveMatches} initialAces={aces} initialStatus={liveSnapshot.status} initialCoverage={liveSnapshot.coverage} />
 
-  {liveTourns.length > 0 && (
+  <LiveTournamentCards tournaments={liveSnapshot.tournaments} status={liveSnapshot.status} />
+
+  {ongoingTourns.length > 0 && (
     <section class="mb-8">
-      <h2 class="mb-3 font-display text-lg font-semibold">Torneos en vivo</h2>
-      <TournamentCards tournaments={liveTourns} />
+      <div class="mb-4"><p class="eyebrow">Esta semana</p><h2 class="section-title mt-1">Torneos en curso</h2></div>
+      <TournamentCards tournaments={ongoingTourns} />
     </section>
   )}
 
   {upcomingTourns.length > 0 && (
     <section class="mb-8">
-      <h2 class="mb-3 font-display text-lg font-semibold">Torneos próximos</h2>
+      <div class="mb-4"><p class="eyebrow">Calendario</p><h2 class="section-title mt-1">Torneos próximos</h2></div>
       <TournamentCards tournaments={upcomingTourns} />
     </section>
   )}
 
-  <section class="mb-8">
-    <h2 class="mb-3 font-display text-lg font-semibold">Próximos partidos</h2>
+  <ChallengerCalendar snapshot={challenger} />
+
+  <section id="proximos" class="mb-10 scroll-mt-24">
+    <div class="mb-4 flex items-end justify-between gap-4"><div><p class="eyebrow">En agenda</p><h2 class="section-title mt-1">Próximos partidos</h2></div><span class="text-xs text-ink-faint">{upcoming.length} disponibles</span></div>
     {upcoming.length > 0 ? (
-      <MatchList client:load matches={upcoming} aces={aces} />
+      <MatchBoard client:load matches={upcoming} aces={aces} />
     ) : (
       <div class="card p-4 text-sm text-ink-muted">
         <p>No hay partidos programados ahora mismo.</p>
         <p class="mt-2 text-xs leading-relaxed text-ink-faint">
-          El calendario y los marcadores en vivo vienen de ESPN (ATP y WTA de circuito principal,
-          incluidos los 250). Si no hay nada es porque no hay ningún torneo en curso. Challenger no
-          tiene datos en ninguna fuente. Mientras tanto, explora los torneos recientes o usa el
-          buscador.
+          El circuito principal se consulta en ESPN. Challenger utiliza Sportradar cuando existe
+          una credencial autorizada; TENISMO no completa los huecos con datos inventados.
         </p>
       </div>
     )}
   </section>
 
   <section class="mb-8">
-    <h2 class="mb-3 font-display text-lg font-semibold">Torneos recientes</h2>
+    <div class="mb-4"><p class="eyebrow">Resultados</p><h2 class="section-title mt-1">Torneos recientes</h2></div>
     <TournamentCards tournaments={recentTourns} />
   </section>
 
@@ -137,8 +175,8 @@ const cards = [
     </section>
   )}
 
-  <section>
-    <h2 class="mb-3 font-display text-lg font-semibold">Buscar partidos</h2>
+  <section id="buscar" class="scroll-mt-24">
+    <div class="mb-4"><p class="eyebrow">Explorar</p><h2 class="section-title mt-1">Busca en todo TENISMO</h2><p class="mt-1 text-sm text-ink-muted">Jugadores, partidos y torneos en una sola búsqueda.</p></div>
     <Buscador client:load />
   </section>
 </Base>

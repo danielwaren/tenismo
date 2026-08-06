@@ -48,6 +48,20 @@ export function candidateSlugs(fullName: string): string[] {
   if (parts.length === 1) return [parts[0]];
 
   const out: string[] = [];
+
+  // Nombre YA abreviado ("Giustino L."), que es la forma en que la propia base
+  // guarda `players.name` y la que dan tennis-data y tennisexplorer. Va
+  // PRIMERO porque en ese caso es una coincidencia exacta, no una heurística.
+  //
+  // Sin esto, el bucle de abajo lee "Giustino" como nombre de pila y "L." como
+  // apellido, y genera l-g, l-gi, l-giu… que no casan con nada: el pronóstico
+  // salía como "jugador no reconocido" para jugadores que SÍ están en la base
+  // y tienen Elo.
+  if (parts.length > 1 && parts[parts.length - 1].length === 1) {
+    const corto = slugFromShortName(fullName);
+    if (corto) out.push(corto);
+  }
+
   // k = cuántos tokens iniciales se consideran nombre de pila (1..parts.length-1)
   for (let k = 1; k < parts.length; k++) {
     const given = parts.slice(0, k);
