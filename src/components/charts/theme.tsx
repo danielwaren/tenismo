@@ -24,6 +24,7 @@ export const chartColor = {
   inkFaint: 'hsl(var(--ink-faint))',
   line: 'hsl(var(--line))',
   surface2: 'hsl(var(--surface-2))',
+  bg: 'hsl(var(--bg))',
 } as const;
 
 export const CHART_FONT = {
@@ -51,10 +52,17 @@ export function fmtSigned(x: number, decimals = 1): string {
   return `${s}${x.toFixed(decimals)}`;
 }
 
-/** Estado vacío consistente para cualquier gráfico sin datos suficientes. */
+/**
+ * Estado vacío. Deliberadamente BAJO (no reserva el alto del gráfico): un
+ * hueco vacío del tamaño de un gráfico deja la pantalla llena de aire y
+ * empuja hacia abajo todo lo que sí tiene datos.
+ */
 export function ChartEmpty({ message }: { message: string }) {
+  // `my-auto` centra el mensaje cuando la tarjeta es `flex flex-col` y se ha
+  // estirado para igualar a sus vecinas de fila; en una tarjeta normal (flujo
+  // de bloque) el margen automático vertical vale 0, así que no estorba.
   return (
-    <div className="flex h-full min-h-[8rem] items-center justify-center rounded-lg border border-dashed border-line/60 p-4 text-center text-2xs text-ink-faint">
+    <div className="my-auto rounded-lg border border-dashed border-line/60 px-3 py-2.5 text-2xs leading-relaxed text-ink-faint">
       {message}
     </div>
   );

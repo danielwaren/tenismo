@@ -15,19 +15,19 @@ export default function KpiRingCard({
 }: { ringPct: number; color: string; big: string; label: string }) {
   const data = [{ value: ringPct, fill: color }];
   return (
-    <div className="card flex items-center gap-3 p-3.5">
-      <ChartContainer config={config} className="aspect-square w-14 shrink-0">
-        <RadialBarChart data={data} innerRadius="70%" outerRadius="100%" startAngle={90} endAngle={-270} barSize={7}>
+    <div className="card flex items-center gap-2.5 p-3">
+      <ChartContainer config={config} className="aspect-square w-11 shrink-0">
+        <RadialBarChart data={data} innerRadius="68%" outerRadius="100%" startAngle={90} endAngle={-270} barSize={6}>
           <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
           <RadialBar dataKey="value" background={{ fill: chartColor.surface2 }} cornerRadius={8} />
-          <text x="50%" y="52%" textAnchor="middle" dominantBaseline="middle" style={{ fill: color, fontSize: 13, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace' }}>
-            {Math.round(ringPct)}%
+          <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" style={{ fill: color, fontSize: 11, fontWeight: 700, fontFamily: 'IBM Plex Mono, monospace' }}>
+            {Math.round(ringPct)}
           </text>
         </RadialBarChart>
       </ChartContainer>
       <div className="min-w-0">
-        <div className="truncate font-display text-lg font-semibold leading-tight text-ink">{big}</div>
-        <div className="truncate text-2xs text-ink-faint">{label}</div>
+        <div className="truncate font-display text-base font-semibold leading-tight text-ink" title={big}>{big}</div>
+        <div className="truncate text-[10px] uppercase tracking-wide text-ink-faint" title={label}>{label}</div>
       </div>
     </div>
   );

@@ -8,11 +8,11 @@ export default function KpiStatCard({
   big, label, accent = 'bg-line',
 }: { big: string; label: string; accent?: string }) {
   return (
-    <div className="card flex items-center gap-3 p-3.5">
-      <span className={`h-9 w-1 shrink-0 rounded-full ${accent}`} aria-hidden="true" />
+    <div className="card flex items-center gap-2.5 p-3">
+      <span className={`h-8 w-1 shrink-0 rounded-full ${accent}`} aria-hidden="true" />
       <div className="min-w-0">
-        <div className="truncate font-mono text-lg font-semibold leading-tight text-ink">{big}</div>
-        <div className="truncate text-2xs text-ink-faint">{label}</div>
+        <div className="truncate font-mono text-base font-semibold leading-tight text-ink" title={big}>{big}</div>
+        <div className="truncate text-[10px] uppercase tracking-wide text-ink-faint" title={label}>{label}</div>
       </div>
     </div>
   );
