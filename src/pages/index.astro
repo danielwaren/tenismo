@@ -5,7 +5,6 @@ import MatchBoard from '../components/MatchBoard.tsx';
 import LiveMatches from '../components/LiveMatches.tsx';
 import TournamentCards from '../components/TournamentCards.astro';
 import ChallengerCalendar from '../components/ChallengerCalendar.astro';
-import LiveTournamentCards from '../components/LiveTournamentCards.astro';
 import {
   getStats, getUpcomingMatches, getPaperSummary,
   getUpcomingTournaments, getOngoingTournaments, getRecentTournaments,
@@ -22,7 +21,7 @@ export const prerender = false;
 const liveSnapshot = await getLiveSnapshot();
 const liveMatches = liveSnapshot.matches;
 
-const [stats, upcoming, paper, upcomingTourns, ongoingTournsRaw, recentTourns, challenger] =
+const [stats, upcoming, paper, upcomingTourns, ongoingTourns, recentTourns, challenger] =
   await Promise.all([
     getStats(),
     getUpcomingMatches(40),
@@ -32,15 +31,6 @@ const [stats, upcoming, paper, upcomingTourns, ongoingTournsRaw, recentTourns, c
     getRecentTournaments(9),
     getChallengerCalendar(),
   ]);
-
-// Los que ya salen en "en vivo" no se repiten en "en curso". Se descuentan con
-// la lista que REALMENTE se pinta arriba (el snapshot en tiempo real), no con
-// una consulta paralela: así es imposible por construcción que las dos
-// secciones discrepen y un torneo aparezca duplicado.
-const idsEnVivo = new Set(
-  liveSnapshot.tournaments.map((t) => t.internalId).filter((id): id is number => id !== null),
-);
-const ongoingTourns = ongoingTournsRaw.filter((t) => !idsEnVivo.has(t.id));
 
 // Aces proyectados de los partidos que se muestran, en una sola consulta para
 // las dos secciones. Solo vuelven los que tienen muestra suficiente en los dos
@@ -123,8 +113,11 @@ const cards = [
   {/* En vivo: se hidrata y se auto-refresca; si no hay nada, no pinta nada. */}
   <LiveMatches client:load initial={liveMatches} initialAces={aces} initialStatus={liveSnapshot.status} initialCoverage={liveSnapshot.coverage} />
 
-  <LiveTournamentCards tournaments={liveSnapshot.tournaments} status={liveSnapshot.status} />
-
+  {/* Ya no hay una sección "Torneos en vivo" aparte: era la misma tarjeta que
+      "Torneos en curso" repetida arriba, solo que sin el resto del cuadro. La
+      tarjeta de "en curso" YA trae su propio contador de partidos en vivo
+      (TOURNAMENT_SELECT calcula `live` con el mismo live_scores de siempre),
+      así que basta con dejar de excluirlos aquí. */}
   {ongoingTourns.length > 0 && (
     <section class="mb-8">
       <div class="mb-4"><p class="eyebrow">Esta semana</p><h2 class="section-title mt-1">Torneos en curso</h2></div>

@@ -7,14 +7,22 @@ export function matchPath(match: { id: number; p1Slug: string; p2Slug: string })
 }
 
 /**
- * Ficha de un torneo Challenger.
+ * Slug legible de un torneo Challenger, a partir del id que da la fuente
+ * ("/hagen-challenger/2026/atp-men/" -> "hagen-challenger-2026").
  *
- * El id que da la fuente es su ruta (`/hagen-challenger/2026/atp-men/`), con
- * barras dentro, así que se codifica entero en UN solo segmento. No se guarda
- * en la base: estos torneos vienen del proveedor en cada petición.
+ * NO se intenta invertir de vuelta al id original (regex adivinando dónde
+ * termina el nombre y empieza el año sería frágil con nombres que ya traen
+ * números, como "Plovdiv 2 challenger"). En su lugar, la página del torneo
+ * recalcula este mismo slug para cada torneo del snapshot del día y busca
+ * cuál coincide — comparación simétrica, sin adivinar nada.
  */
+export function challengerSlug(tournamentId: string): string {
+  const [nombre, anio] = tournamentId.split('/').filter(Boolean);
+  return anio ? `${nombre}-${anio}` : nombre;
+}
+
 export function challengerPath(tournamentId: string): string {
-  return `/challenger/${encodeURIComponent(tournamentId)}`;
+  return `/challenger/${challengerSlug(tournamentId)}`;
 }
 
 export function idFromReadablePath(value: string | undefined): number | null {

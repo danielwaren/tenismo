@@ -60,6 +60,13 @@ export interface ModelForecast {
   /** Variables principales que usó el modelo, en palabras. */
   reasons?: string[];
   modelVersion: string;
+  /**
+   * Ids ya resueltos de playerOne/playerTwo, cuando available=true. Se
+   * exponen para que el llamador pueda reutilizarlos (p. ej. para pedir
+   * getAceEstimatesForPairs) sin repetir la resolución de nombres.
+   */
+  p1Id?: number;
+  p2Id?: number;
 }
 
 async function resolveTwoPlayers(
@@ -174,6 +181,8 @@ export async function getModelForecast(req: ForecastRequest): Promise<ModelForec
       confidence: pred.confidence,
       reasons: pred.reasons,
       modelVersion,
+      p1Id: players.p1,
+      p2Id: players.p2,
     };
   }
 
@@ -204,6 +213,8 @@ export async function getModelForecast(req: ForecastRequest): Promise<ModelForec
         `Probabilidad de saque estimada: ${req.playerOne} ${(pa * 100).toFixed(0)}% · ${req.playerTwo} ${(pb * 100).toFixed(0)}%.`,
       ],
       modelVersion,
+      p1Id: players.p1,
+      p2Id: players.p2,
     };
   }
 
@@ -221,5 +232,7 @@ export async function getModelForecast(req: ForecastRequest): Promise<ModelForec
       `Media simulada: ${sim.meanGames.toFixed(1)} juegos totales, victoria de ${req.playerOne} en ${(sim.aWinRate * 100).toFixed(0)}% de las simulaciones.`,
     ],
     modelVersion,
+    p1Id: players.p1,
+    p2Id: players.p2,
   };
 }

@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import {
   createBankroll, listBankrolls, getBankrollSummary, addBankrollMovement,
-  listTransactions, getDailySummary, BetValidationError,
+  listTransactions, getDailySummary, resetBankroll, BetValidationError,
 } from '../../../lib/bets';
 
 export const prerender = false;
@@ -66,6 +66,31 @@ export const POST: APIRoute = async ({ request }) => {
         description: body.description ? String(body.description) : undefined,
       });
       return json({ ok: true }, 201);
+    }
+
+    // Reinicio: borra TODAS las apuestas y movimientos de la banca. Son datos
+    // reales metidos a mano, así que exige repetir el NOMBRE de la banca como
+    // confirmación — no basta un botón, hay que escribir qué se está borrando.
+    if (body.action === 'reset') {
+      const bankrollId = Number(body.bankrollId);
+      if (!Number.isFinite(bankrollId)) return json({ error: 'bankrollId requerido.' }, 400);
+      const confirmName = String(body.confirmName ?? '').trim();
+      const actual = (await listBankrolls()).find((b) => b.id === bankrollId);
+      if (!actual) return json({ error: 'Banca no encontrada.' }, 404);
+      if (confirmName !== actual.name) {
+        return json({ error: 'El nombre no coincide. Escribe el nombre exacto de la banca para confirmar.' }, 400);
+      }
+      // `null` cuenta como "sin indicar", NO como 0: JSON.stringify convierte
+      // NaN en null (p. ej. Number("200,50") con coma decimal en vez de
+      // punto), y sin esta rama Number(null) da 0 — la banca se reiniciaba a
+      // $0 en silencio en vez de avisar de que el número no se entendió.
+      const sinIndicar = body.initialBalance === undefined || body.initialBalance === null || body.initialBalance === '';
+      const initialBalance = sinIndicar ? undefined : Number(body.initialBalance);
+      if (initialBalance !== undefined && (!Number.isFinite(initialBalance) || initialBalance < 0)) {
+        return json({ error: 'La banca inicial debe ser un número no negativo (usa punto decimal, no coma).' }, 400);
+      }
+      await resetBankroll({ bankrollId, initialBalance });
+      return json({ ok: true });
     }
 
     // Crear banca. El saldo inicial lo pone el usuario a mano — nunca se toma

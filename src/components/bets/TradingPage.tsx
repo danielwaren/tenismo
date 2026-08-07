@@ -113,6 +113,7 @@ export default function TradingPage({ initialBankrolls }: { initialBankrolls: { 
       )}
 
       {summary && <BankrollMovement bankrollId={summary.id} currency={summary.currency} onDone={reload} />}
+      {summary && <ResetBankroll bankrollId={summary.id} name={summary.name} onDone={reload} />}
 
       <nav className="flex gap-1 overflow-x-auto" aria-label="Secciones">
         {tabs.map((t) => (
@@ -345,6 +346,111 @@ function BankrollMovement({ bankrollId, currency, onDone }: { bankrollId: number
         <button type="button" disabled={busy || !valid} onClick={submit}
           className="rounded-lg bg-court px-4 py-2.5 text-sm font-semibold text-bg disabled:opacity-40">
           {busy ? 'Guardando…' : open === 'DEPOSIT' ? 'Confirmar depósito' : 'Confirmar retiro'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Reinicia la banca: borra TODAS las apuestas y movimientos registrados.
+ *
+ * A diferencia del reset de Paper Trading, esto es historial REAL que se
+ * metió a mano — no dinero ficticio que coloca solo el cron. Por eso pide
+ * escribir el NOMBRE exacto de la banca para confirmar, no basta un botón:
+ * el mismo criterio que usan las plataformas para borrar una cuenta.
+ */
+function ResetBankroll({ bankrollId, name, onDone }: { bankrollId: number; name: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [newInitial, setNewInitial] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const nombreOk = confirmName.trim() === name;
+  // Vacío es válido (mantiene la banca actual); con texto, tiene que ser un
+  // número real. Antes esto se validaba solo en el servidor, y una coma
+  // decimal ("200,50") llegaba como NaN -> JSON la convierte en null -> el
+  // servidor la leía como 0 y reiniciaba la banca a $0 SIN avisar. Validarlo
+  // aquí, con el texto original todavía a mano, es la única forma de
+  // distinguir "no escribió nada" de "escribió algo que no se entiende".
+  const initialTexto = newInitial.trim();
+  const initialValido = initialTexto === '' || (Number.isFinite(Number(initialTexto)) && Number(initialTexto) >= 0);
+  const puedeConfirmar = nombreOk && initialValido;
+
+  async function reset() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/bets/bankroll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reset',
+          bankrollId,
+          confirmName: confirmName.trim(),
+          initialBalance: initialTexto === '' ? undefined : Number(initialTexto),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'No se pudo reiniciar la banca.');
+      setOpen(false); setConfirmName(''); setNewInitial('');
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="text-right">
+        <button type="button" onClick={() => setOpen(true)}
+          className="text-2xs font-medium text-ink-faint hover:text-live">
+          Reiniciar banca
+        </button>
+      </div>
+    );
+  }
+
+  const input = 'w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink';
+  return (
+    <section className="card space-y-3 border-live/30 p-4">
+      <h3 className="text-sm font-semibold text-live">Reiniciar "{name}"</h3>
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        Borra TODAS las apuestas y movimientos de esta banca. No se puede deshacer. Para confirmar,
+        escribe el nombre exacto de la banca.
+      </p>
+      <div>
+        <label className="mb-1 block text-2xs uppercase tracking-wide text-ink-muted" htmlFor="rb-name">
+          Nombre de la banca ({name})
+        </label>
+        <input id="rb-name" className={input} value={confirmName}
+          onChange={(e) => setConfirmName(e.target.value)} placeholder={name} autoFocus />
+        {confirmName !== '' && !nombreOk && (
+          <p className="mt-1 text-2xs text-live">No coincide con "{name}".</p>
+        )}
+      </div>
+      <div>
+        <label className="mb-1 block text-2xs uppercase tracking-wide text-ink-muted" htmlFor="rb-initial">
+          Nueva banca inicial (opcional — deja en blanco para mantener la actual)
+        </label>
+        <input id="rb-initial" className={input} inputMode="decimal" value={newInitial}
+          onChange={(e) => setNewInitial(e.target.value)} placeholder="100" />
+        {initialTexto !== '' && !initialValido && (
+          <p className="mt-1 text-2xs text-live">Usa punto decimal, no coma: {initialTexto} no es un número válido.</p>
+        )}
+      </div>
+      {error && <p className="text-2xs text-live">{error}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => { setOpen(false); setConfirmName(''); setNewInitial(''); setError(null); }}
+          className="rounded-lg border border-line px-4 py-2.5 text-sm text-ink-muted">
+          Cancelar
+        </button>
+        <button type="button" disabled={busy || !puedeConfirmar} onClick={reset}
+          className="rounded-lg bg-live px-4 py-2.5 text-sm font-semibold text-bg disabled:opacity-40">
+          {busy ? 'Reiniciando…' : 'Borrar todo y reiniciar'}
         </button>
       </div>
     </section>

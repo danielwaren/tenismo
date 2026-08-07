@@ -1,15 +1,22 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PlayerAvatar from '../../components/PlayerAvatar.astro';
-import { getChallengerCalendar } from '../../lib/challenger';
+import ChallengerDraw from '../../components/ChallengerDraw.tsx';
+import { getChallengerCalendar, getChallengerDraw } from '../../lib/challenger';
 import { getModelForecast } from '../../lib/model-forecast';
+import { getAceEstimatesForPairs } from '../../lib/queries';
+import { challengerSlug } from '../../lib/urls';
 
 export const prerender = false;
 
-const slug = decodeURIComponent(Astro.params.slug ?? '');
+// URL limpia ("hagen-challenger-2026"), no la ruta cruda de la fuente. No se
+// invierte el slug al id original: se recalcula el MISMO slug para cada
+// torneo del snapshot y se compara — simétrico, sin adivinar dónde termina
+// el nombre y empieza el año.
+const slug = Astro.params.slug ?? '';
 const snapshot = await getChallengerCalendar();
-const torneo = snapshot.tournaments.find((t) => t.id === slug);
-const partidos = snapshot.matches.filter((m) => m.tournamentId === slug);
+const torneo = snapshot.tournaments.find((t) => challengerSlug(t.id) === slug);
+const partidos = torneo ? snapshot.matches.filter((m) => m.tournamentId === torneo.id) : [];
 
 if (!torneo) return Astro.redirect('/', 302);
 
@@ -43,10 +50,33 @@ const pronosticos = await Promise.all(
 );
 
 const conPronostico = pronosticos.filter((p) => p?.available).length;
+
+/**
+ * Aces esperados, para los partidos cuyos dos jugadores sí se resolvieron.
+ * Se piden con los ids que YA devolvió el pronóstico (p1Id/p2Id) — sin
+ * resolver los nombres una segunda vez — y se descarta el partido si no
+ * tiene muestra suficiente en algún lado, igual que en el resto del sitio.
+ */
+const aces = await getAceEstimatesForPairs(
+  partidos
+    .map((m, i) => ({ m, f: pronosticos[i] }))
+    .filter(({ f }) => f?.available && f.p1Id !== undefined && f.p2Id !== undefined)
+    .map(({ m, f }) => ({ key: m.id, p1: f!.p1Id!, p2: f!.p2Id! })),
+);
+
 const enJuego = partidos.filter((m) => m.status === 'live').length;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+const n1 = (x: number) => x.toFixed(1).replace('.', ',');
 const hora = (iso: string) =>
   new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+
+/**
+ * Cuadro completo (todas las rondas ya jugadas), aparte de los partidos de
+ * hoy de arriba. Es una petición más a la fuente — tolerante a fallo: si no
+ * responde, la página sigue mostrando lo de hoy con normalidad, solo sin el
+ * cuadro histórico.
+ */
+const draw = await getChallengerDraw(torneo.id).catch(() => null);
 ---
 
 <Base title={`${torneo.name} · TENISMO`} active="home">
@@ -125,6 +155,33 @@ const hora = (iso: string) =>
                     {f?.unavailableReason ?? 'Sin pronóstico del modelo.'}
                   </p>
                 )}
+
+                {aces.has(m.id) && (() => {
+                  const est = aces.get(m.id)!;
+                  return (
+                    <div class="mt-2 border-t border-line pt-2">
+                      <div class="flex items-baseline justify-between text-2xs text-ink-faint">
+                        <span class="uppercase tracking-wide">
+                          Aces esperados
+                          <span class="ml-1 normal-case tracking-normal" title="Challenger no publica superficie: se usa el perfil de saque de cada jugador contra la media del circuito.">
+                            (sin superficie)
+                          </span>
+                        </span>
+                        <span class="font-mono tabular-nums text-ink-muted">total {n1(est.total)}</span>
+                      </div>
+                      <div class="mt-1 flex gap-3 text-2xs text-ink-muted">
+                        <span class="min-w-0 flex-1 truncate">
+                          <span class="font-mono tabular-nums text-court">{n1(est.p1.expected)}</span>
+                          {' '}{m.player1.split(' ')[0]}
+                        </span>
+                        <span class="min-w-0 flex-1 truncate text-right">
+                          {m.player2.split(' ')[0]}{' '}
+                          <span class="font-mono tabular-nums text-court">{n1(est.p2.expected)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </article>
           </li>
@@ -133,9 +190,17 @@ const hora = (iso: string) =>
     </ul>
   )}
 
+  {draw && draw.matches.length > 0 && (
+    <section class="mt-8">
+      <div class="mb-4"><p class="eyebrow">Histórico</p><h2 class="section-title mt-1">Cuadro</h2></div>
+      <ChallengerDraw client:load rounds={draw.rounds} matches={draw.matches} />
+    </section>
+  )}
+
   <p class="mt-6 text-2xs leading-relaxed text-ink-faint">
     Los pronósticos usan el Elo por superficie de TENISMO, entrenado también con los partidos
     Challenger. Cuando un jugador no se reconoce en la base no se muestra probabilidad: no se
     rellena con una estimación inventada.
+    {draw && draw.matches.length > 0 && ' El cuadro sale de la misma fuente que los partidos de hoy.'}
   </p>
 </Base>

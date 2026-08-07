@@ -3,7 +3,11 @@ import { sameScore, parseScore } from './score';
 import {
   brierScore, logLoss, brierSkillScore, reliabilityBins, devigTwoWay,
   FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES, estimateServeProb,
+  simulateMatch, matchWinProb, contributionsToWaterfall, computeConfidence,
+  evaluateMarket, acesAtLeastBreakdown, totalAcesOverUnder,
   type BinaryOutcome, type FeatureName, type ServeProfile, type MatchAceEstimate,
+  type ProbabilityWaterfall, type ConfidenceResult, type MarketComparisonResult,
+  type ExpectedGamesDistribution, type ExpectedAcesDistribution,
 } from '@tti/model';
 
 export type { MatchAceEstimate };
@@ -12,6 +16,15 @@ export type { MatchAceEstimate };
 export interface MatchAces extends MatchAceEstimate {
   /** true = perfiles de esa superficie; false = perfiles globales (menos preciso). */
   bySurface: boolean;
+  /**
+   * Tasa histórica CRUDA (aces / juegos al saque, sin ajuste por rival) de
+   * cada jugador — lo que de verdad viene de Tennis Abstract. Distinta de
+   * `p1.perGame`/`p2.perGame` (en `MatchAceEstimate`), que ya está ajustada
+   * por el restador y encogida: esa es la ESTIMACIÓN, no el dato histórico.
+   * Nunca se deben mostrar como si fueran el mismo número.
+   */
+  p1RawAceRate: number;
+  p2RawAceRate: number;
 }
 
 /**
@@ -333,7 +346,82 @@ export async function getAceEstimates(matchIds: number[]): Promise<Map<number, M
     // Sin muestra en los dos lados sería la media del circuito con nombre y
     // apellidos. No se publica.
     if (est?.reliable) {
-      out.set(Number(r.id), { ...est, bySurface: conSuperficie && a.bySurface && b.bySurface });
+      out.set(Number(r.id), {
+        ...est,
+        bySurface: conSuperficie && a.bySurface && b.bySurface,
+        p1RawAceRate: a.p.aceRate,
+        p2RawAceRate: b.p.aceRate,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Misma proyección de aces que getAceEstimates, pero para partidos que NO
+ * tienen fila en `matches` — los de Challenger, que vienen de tennisexplorer
+ * en cada petición y nunca se guardan (torneo y fecha son del proveedor, no
+ * nuestros). Se pide directamente por PAR DE JUGADORES, con el circuito
+ * entero como referencia (Challenger no publica superficie, y es casi
+ * siempre al mejor de 3 — no hay Grand Slam en el circuito).
+ */
+export async function getAceEstimatesForPairs(
+  pairs: { key: string; p1: number; p2: number }[],
+): Promise<Map<string, MatchAces>> {
+  const out = new Map<string, MatchAces>();
+  if (!pairs.length) return out;
+  const c = db();
+
+  const perfilPorJugador = async (playerIds: number[]) => {
+    const ph = playerIds.map(() => '?').join(',');
+    const rows = (
+      await c.execute({
+        sql: `select s.player_id, sum(s.aces) aces, sum(s.serve_games) gms,
+                     sum(o.aces) conc, sum(o.serve_games) ret_gms
+              from match_stats s
+              join match_stats o on o.match_id = s.match_id and o.player_id <> s.player_id
+              where s.player_id in (${ph})
+              group by s.player_id`,
+        args: playerIds,
+      })
+    ).rows;
+    const m = new Map<number, ServeProfile>();
+    for (const r of rows) {
+      const sv = Number(r.gms ?? 0);
+      const rt = Number(r.ret_gms ?? 0);
+      m.set(Number(r.player_id), {
+        serveGames: sv,
+        aceRate: sv > 0 ? Number(r.aces ?? 0) / sv : 0,
+        returnGames: rt,
+        concedeRate: rt > 0 ? Number(r.conc ?? 0) / rt : 0,
+      });
+    }
+    return m;
+  };
+
+  const ids = [...new Set(pairs.flatMap((p) => [p.p1, p.p2]))];
+  const perfiles = await perfilPorJugador(ids);
+
+  const circuito = (
+    await c.execute(`
+      with base as (
+        select s.aces, s.serve_games from match_stats s join matches m on m.id = s.match_id where coalesce(m.best_of,3) = 3
+      )
+      select 1.0 * sum(aces) / nullif(sum(serve_games), 0) tasa, 1.0 * sum(serve_games) / count(*) juegos
+      from base
+    `)
+  ).rows[0];
+  const tourAceRate = Number(circuito?.tasa ?? 0);
+  const expectedServeGames = Number(circuito?.juegos ?? 0);
+
+  const vacio: ServeProfile = { serveGames: 0, aceRate: 0, returnGames: 0, concedeRate: 0 };
+  for (const { key, p1, p2 } of pairs) {
+    const a = perfiles.get(p1) ?? vacio;
+    const b = perfiles.get(p2) ?? vacio;
+    if (a.serveGames < MIN_SERVE_GAMES || b.serveGames < MIN_SERVE_GAMES) continue;
+    const est = estimateMatchAces(a, b, { tourAceRate, expectedServeGames });
+    if (est?.reliable) {
+      out.set(key, { ...est, bySurface: false, p1RawAceRate: a.aceRate, p2RawAceRate: b.aceRate });
     }
   }
   return out;
@@ -750,6 +838,8 @@ export interface PlayerStats {
   /** Elo global calculado SOLO con los partidos de los últimos 2 años (scripts/train-elo-recent.ts). */
   eloRecent: number | null;
   matches: number;
+  /** Partidos usados para el rating de ESTA superficie (player_ratings.matches) — muestra que sostiene eloSurface. */
+  matchesSurface: number | null;
   /** % de victorias en toda su historia registrada. */
   winRate: number | null;
   /** % de victorias en esta superficie. */
@@ -874,6 +964,18 @@ export interface MatchDetail extends MatchRow {
   h2h: H2HMeeting[];
   /** Promedios de saque y resto en los duelos previos. null si no hay ninguno. */
   h2hStats: H2HStats | null;
+  /** Desglose del pronóstico en puntos porcentuales (waterfall, ver explain.ts). null sin contribuciones. */
+  waterfall: ProbabilityWaterfall | null;
+  /** Confianza 0-100 testeable (ver confidence.ts). null sin probabilidad del modelo. */
+  confidenceDetail: ConfidenceResult | null;
+  /** Distribución de juegos del partido (motor Markov). null sin datos de saque suficientes. */
+  expectedGames: ExpectedGamesDistribution | null;
+  /** Proyección de aces con probabilidades Poisson. null sin muestra fiable. */
+  expectedAces: ExpectedAcesDistribution | null;
+  /** Cuota justa / edge / EV / tier de value frente al mercado. null sin probabilidad del modelo. */
+  market: MarketComparisonResult | null;
+  serveReturnP1: ServeReturnSummary;
+  serveReturnP2: ServeReturnSummary;
 }
 
 /**
@@ -1074,7 +1176,7 @@ async function getH2H(
 async function getPlayerStats(playerId: number, name: string, surface: string | null): Promise<PlayerStats> {
   const c = db();
   const elo = (await c.execute({
-    sql: `select surface, elo from player_ratings where player_id = ? and surface in ('all', ?, 'recent2y')`,
+    sql: `select surface, elo, matches from player_ratings where player_id = ? and surface in ('all', ?, 'recent2y')`,
     args: [playerId, surface ?? 'all'],
   })).rows;
   const eloOverall = elo.find((r) => r.surface === 'all');
@@ -1117,12 +1219,59 @@ async function getPlayerStats(playerId: number, name: string, surface: string | 
     eloSurface: eloSurface ? Number(eloSurface.elo) : null,
     eloRecent: eloRecent ? Number(eloRecent.elo) : null,
     matches: n,
+    matchesSurface: eloSurface ? Number(eloSurface.matches) : null,
     winRate: n > 0 ? w / n : null,
     winRateSurface: ns > 0 ? ws / ns : null,
     recentForm: recent,
     ranking: ranking?.rank == null ? null : Number(ranking.rank),
     rankingPoints: ranking?.points == null ? null : Number(ranking.points),
     rankingDate: ranking?.played_on == null ? null : String(ranking.played_on),
+  };
+}
+
+/** Resumen de saque/resto de un jugador (global, `match_stats` — Tennis Abstract). Todo null cuando no hay muestra. */
+export interface ServeReturnSummary {
+  matches: number;
+  acesPerMatch: number | null;
+  doubleFaultsPerMatch: number | null;
+  firstServeIn: number | null;
+  firstServeWon: number | null;
+  secondServeWon: number | null;
+  breakPointsSaved: number | null;
+}
+
+/**
+ * Igual agregación que usa `getPlayerProfile` para su bloque `serve`, en una
+ * función propia para poder pedirla también desde `getMatchDetail` sin
+ * duplicar el SQL. Deliberadamente GLOBAL (no por superficie): partir la
+ * muestra en dos junto con el filtro de superficie que ya aplica `statsP1/
+ * statsP2` la habría dejado demasiado corta en la mayoría de partidos —
+ * queda documentado como limitación conocida, no escondida (ver informe).
+ */
+async function getServeReturnSummary(playerId: number): Promise<ServeReturnSummary> {
+  const c = db();
+  const row = (await c.execute({
+    sql: `select count(*) matches, sum(aces) aces, sum(double_faults) double_faults,
+                 sum(serve_points) serve_points, sum(first_in) first_in,
+                 sum(first_won) first_won, sum(second_won) second_won,
+                 sum(bp_saved) bp_saved, sum(bp_faced) bp_faced
+          from match_stats where player_id = ?`,
+    args: [playerId],
+  })).rows[0];
+  const ratio = (n: number, d: number) => (d > 0 ? n / d : null);
+  const matches = Number(row?.matches ?? 0);
+  const servePoints = Number(row?.serve_points ?? 0);
+  const firstIn = Number(row?.first_in ?? 0);
+  const secondPoints = servePoints - firstIn;
+  const bpFaced = Number(row?.bp_faced ?? 0);
+  return {
+    matches,
+    acesPerMatch: ratio(Number(row?.aces ?? 0), matches),
+    doubleFaultsPerMatch: ratio(Number(row?.double_faults ?? 0), matches),
+    firstServeIn: ratio(firstIn, servePoints),
+    firstServeWon: ratio(Number(row?.first_won ?? 0), firstIn),
+    secondServeWon: ratio(Number(row?.second_won ?? 0), secondPoints),
+    breakPointsSaved: ratio(Number(row?.bp_saved ?? 0), bpFaced),
   };
 }
 
@@ -1373,15 +1522,124 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
     meetings: h2h, p1Wins: h2hP1Wins, p2Wins: h2hP2Wins, stats: h2hStats,
   } = await getH2H(p1Id, p2Id, id, base.playedOn, base.p1Name, base.p2Name);
 
-  const [statsP1, statsP2] = await Promise.all([
+  const [statsP1, statsP2, serveReturnP1, serveReturnP2] = await Promise.all([
     getPlayerStats(p1Id, base.p1Name, base.surface),
     getPlayerStats(p2Id, base.p2Name, base.surface),
+    getServeReturnSummary(p1Id),
+    getServeReturnSummary(p2Id),
   ]);
+
+  // Desglose en puntos porcentuales: mismo orden (|contribución| desc) que ya
+  // usa "Qué pesa en el pronóstico" — ver explain.ts para por qué el orden es
+  // fijo y por qué el total SIEMPRE reconcilia con probP1 pase lo que pase.
+  const waterfall: ProbabilityWaterfall | null = contributions.length
+    ? contributionsToWaterfall(contributions.map((c) => ({ name: c.name, contribution: c.contribution })))
+    : null;
+
+  const bestOf = extra?.best_of === null || extra?.best_of === undefined ? null : Number(extra.best_of);
+
+  // Motor punto a punto y proyección de aces: mismas funciones ya usadas por
+  // Paper Trading (getMarkovInputs) y las tarjetas de partido (getAceEstimates),
+  // solo que aquí se piden para UN partido y se exponen en la ficha.
+  const [markovMap, aceMap] = await Promise.all([getMarkovInputs([id]), getAceEstimates([id])]);
+  const mk = markovMap.get(id);
+  const ace = aceMap.get(id);
+
+  let expectedGames: ExpectedGamesDistribution | null = null;
+  if (mk) {
+    const sim = simulateMatch(mk.pa, mk.pb, mk.bestOf);
+    const lines = mk.bestOf === 5 ? [30.5, 33.5, 36.5, 39.5, 42.5] : [19.5, 20.5, 21.5, 22.5, 23.5, 24.5];
+    const overUnder = lines.map((line) => {
+      const over = sim.probOver(line);
+      return { line, over, under: 1 - over };
+    });
+    const counts = new Map<number, number>();
+    for (const g of sim.totalGames) counts.set(g, (counts.get(g) ?? 0) + 1);
+    const histogram = [...counts.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([games, n]) => ({ games, probability: n / sim.totalGames.length }));
+    const sorted = [...sim.totalGames].sort((a, b) => a - b);
+    const pctl = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+    expectedGames = {
+      bestOf: mk.bestOf ?? 3,
+      meanGames: sim.meanGames,
+      sdGames: sim.sdGames,
+      rangeLow: pctl(0.25),
+      rangeHigh: pctl(0.75),
+      overUnder,
+      histogram,
+      provenance: {
+        source: 'tenismo-estimate',
+        updatedAt: null,
+        sampleSize: sorted.length,
+        surface: mk.bySurface ? base.surface : 'all',
+        period: null,
+        isEstimated: true,
+      },
+    };
+  }
+
+  let expectedAces: ExpectedAcesDistribution | null = null;
+  if (ace) {
+    const b1 = ace.p1.reliable ? acesAtLeastBreakdown(ace.p1.expected) : null;
+    const b2 = ace.p2.reliable ? acesAtLeastBreakdown(ace.p2.expected) : null;
+    const center = Math.round(ace.total);
+    const totalLines = [center - 3.5, center - 1.5, center + 0.5, center + 2.5];
+    expectedAces = {
+      p1: {
+        expected: ace.p1.expected, sample: ace.p1.sample, reliable: ace.p1.reliable,
+        atLeast3: b1?.atLeast3 ?? null, atLeast5: b1?.atLeast5 ?? null, atLeast7: b1?.atLeast7 ?? null,
+      },
+      p2: {
+        expected: ace.p2.expected, sample: ace.p2.sample, reliable: ace.p2.reliable,
+        atLeast3: b2?.atLeast3 ?? null, atLeast5: b2?.atLeast5 ?? null, atLeast7: b2?.atLeast7 ?? null,
+      },
+      totalExpected: ace.total,
+      totalOverUnder: totalAcesOverUnder(ace.total, totalLines),
+      reliable: ace.reliable,
+      historicalRateP1: {
+        value: ace.p1RawAceRate,
+        provenance: {
+          source: 'tennis-abstract', updatedAt: null, sampleSize: ace.p1.sample,
+          surface: ace.bySurface ? base.surface : 'all', period: null, isEstimated: false,
+        },
+      },
+      historicalRateP2: {
+        value: ace.p2RawAceRate,
+        provenance: {
+          source: 'tennis-abstract', updatedAt: null, sampleSize: ace.p2.sample,
+          surface: ace.bySurface ? base.surface : 'all', period: null, isEstimated: false,
+        },
+      },
+      provenance: {
+        source: 'tenismo-estimate', updatedAt: null, sampleSize: Math.min(ace.p1.sample, ace.p2.sample),
+        surface: ace.bySurface ? base.surface : 'all', period: null, isEstimated: true,
+      },
+    };
+  }
+
+  // Confianza 0-100: reusa el umbral de partidos "en superficie" para el que
+  // se pidió statsP1/statsP2 (matchesSurface), y el acuerdo entre la
+  // regresión logística y el motor punto a punto cuando ambos están
+  // disponibles para este partido.
+  const confidenceDetail: ConfidenceResult | null = base.probP1 !== null
+    ? computeConfidence({
+      matchesP1: statsP1.matches, matchesP2: statsP2.matches,
+      surfaceMatchesP1: statsP1.matchesSurface ?? 0, surfaceMatchesP2: statsP2.matchesSurface ?? 0,
+      serveStatsReliable: ace?.reliable ?? false,
+      modelProbP1: base.probP1,
+      markovProbP1: mk ? matchWinProb(mk.pa, mk.pb, mk.bestOf) : null,
+    })
+    : null;
+
+  const market: MarketComparisonResult | null = base.probP1 !== null
+    ? evaluateMarket({ modelProb: base.probP1, oddsDecimal: o1?.odds ?? null, noVigProb: dev ? dev.p1 : null })
+    : null;
 
   return {
     ...base,
     p1Id, p2Id,
-    bestOf: extra?.best_of === null || extra?.best_of === undefined ? null : Number(extra.best_of),
+    bestOf,
     court: (extra?.court as string | null) ?? null,
     reasons,
     contributions,
@@ -1391,6 +1649,8 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
     sets, gamesP1, gamesP2,
     statsP1, statsP2,
     h2hP1Wins, h2hP2Wins, h2h, h2hStats,
+    waterfall, confidenceDetail, expectedGames, expectedAces, market,
+    serveReturnP1, serveReturnP2,
   };
 }
 

@@ -195,6 +195,49 @@ export async function addBankrollMovement(input: {
   });
 }
 
+/**
+ * Reinicia una banca REAL de "Mis apuestas": borra TODAS sus apuestas y
+ * movimientos y la deja como recién creada.
+ *
+ * A diferencia del reset del Paper Trading (dinero ficticio que coloca solo
+ * el cron), esto borra historial que el usuario metió a mano — apuestas
+ * reales que jugó. Por eso vive en su propia función explícita (no un
+ * `delete` suelto en la ruta) y por eso la confirmación fuerte va en la
+ * interfaz, no aquí: esta función asume que ya se decidió.
+ */
+export async function resetBankroll(input: { bankrollId: number; initialBalance?: number }): Promise<void> {
+  const c = db();
+  const tx = await c.transaction('write');
+  try {
+    const existe = (
+      await tx.execute({ sql: 'select initial_balance from bankrolls where id = ?', args: [input.bankrollId] })
+    ).rows[0];
+    if (!existe) throw new Error('Banca no encontrada.');
+
+    await tx.execute({ sql: 'delete from bets where bankroll_id = ?', args: [input.bankrollId] });
+    await tx.execute({ sql: 'delete from bankroll_transactions where bankroll_id = ?', args: [input.bankrollId] });
+
+    let inicial = Number(existe.initial_balance);
+    if (input.initialBalance !== undefined) {
+      if (!(input.initialBalance >= 0)) throw new Error('La banca inicial no puede ser negativa.');
+      inicial = round2(input.initialBalance);
+      await tx.execute({
+        sql: 'update bankrolls set initial_balance = ?, updated_at = iso_now() where id = ?',
+        args: [inicial, input.bankrollId],
+      });
+    }
+    await tx.execute({
+      sql: `insert into bankroll_transactions (bankroll_id, type, amount, description)
+            values (?, 'INITIAL_BALANCE', ?, 'Banca reiniciada')`,
+      args: [input.bankrollId, inicial],
+    });
+    await tx.commit();
+  } catch (e) {
+    await tx.rollback();
+    throw e;
+  }
+}
+
 async function getTransactions(bankrollId: number): Promise<{ type: BankrollTxType; amount: number }[]> {
   const c = db();
   const res = await c.execute({

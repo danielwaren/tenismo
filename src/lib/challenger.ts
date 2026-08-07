@@ -140,3 +140,21 @@ async function getChallengerFromExplorer(horizonDays: number): Promise<Challenge
   cache = { expires: Date.now() + CACHE_MS, value };
   return value;
 }
+
+/**
+ * Cuadro completo de un torneo (todas las rondas que ya se hayan jugado),
+ * para /challenger/[slug]. Va aparte de getChallengerCalendar porque es una
+ * página más (una petición más a la fuente) y solo hace falta pedirla cuando
+ * alguien entra a ESE torneo en concreto, no en cada carga del panel.
+ */
+let drawCache = new Map<string, { expires: number; value: import('../../scripts/lib/tennis-explorer-draw').Draw }>();
+
+export async function getChallengerDraw(tournamentId: string) {
+  const cached = drawCache.get(tournamentId);
+  if (cached && Date.now() < cached.expires) return cached.value;
+
+  const { fetchDrawPage, parseDraw } = await import('../../scripts/lib/tennis-explorer-draw');
+  const value = parseDraw(await fetchDrawPage(tournamentId));
+  drawCache.set(tournamentId, { expires: Date.now() + CACHE_MS, value });
+  return value;
+}

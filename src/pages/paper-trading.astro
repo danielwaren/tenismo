@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+import ResetPaperBankroll from '../components/ResetPaperBankroll.tsx';
 import { getPaperSummary, getPaperTrades, getPaperMarketBreakdown, isPaperStatus } from '../lib/queries';
 import { fmtDate, signedPct } from '../lib/format';
 
@@ -49,6 +50,12 @@ const ETIQUETA: Record<string, string> = {
     simulada: la regla del proyecto es que la cuota siempre viene de una casa real, nunca de la
     probabilidad del propio modelo.
   </div>
+
+  {summary && (
+    <div class="mb-6 flex justify-end">
+      <ResetPaperBankroll client:load initialBankroll={summary.initialBankroll} />
+    </div>
+  )}
 
   {byMarket.length > 1 && (
     <section class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">

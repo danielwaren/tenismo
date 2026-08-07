@@ -17,20 +17,24 @@ export interface PlayerIndex {
   bySlug: Map<string, number>;
   /** apellido normalizado -> ids que lo comparten. */
   bySurname: Map<string, number[]>;
+  /** id -> slug, para volver a comprobar la inicial en el último recurso. */
+  slugById: Map<number, string>;
 }
 
 /** Construye el índice a partir de las filas de `players` de un circuito. */
 export function buildIndex(rows: { id: number; slug: string }[]): PlayerIndex {
   const bySlug = new Map<string, number>();
   const bySurname = new Map<string, number[]>();
+  const slugById = new Map<number, string>();
   for (const r of rows) {
     bySlug.set(r.slug, r.id);
+    slugById.set(r.id, r.slug);
     const surname = r.slug.split('-')[0];
     const list = bySurname.get(surname) ?? [];
     list.push(r.id);
     bySurname.set(surname, list);
   }
-  return { bySlug, bySurname };
+  return { bySlug, bySurname, slugById };
 }
 
 /**
@@ -115,6 +119,47 @@ export function resolvePlayer(
     if (hits?.length === 1) return { ok: true, playerId: hits[0], via: 'apellido' };
     if (hits && hits.length > 1) {
       return { ok: false, reason: `apellido "${surname}" ambiguo (${hits.length} jugadores)`, candidates };
+    }
+  }
+
+  // Último recurso, para el formato YA abreviado ("Papoe R."): sufijo del
+  // apellido, único en TODO el circuito.
+  //
+  // POR QUÉ HACE FALTA. promote-challenger.ts crea jugadores nuevos con
+  // slugFromFullName, que solo separa el PRIMER token como nombre de pila:
+  // "Radu Mihai Papoe" queda con slug "mihai papoe-r" en vez de "papoe-r".
+  // Cuando la fuente da luego la forma corta "Papoe R.", ningún candidato de
+  // arriba casa con ese slug — el apellido de verdad es "papoe", pero está
+  // enterrado detrás de un nombre de pila compuesto que nadie adivinó al
+  // crear la ficha.
+  //
+  // Se busca la ÚLTIMA palabra del apellido corto ("papoe") como ÚLTIMA
+  // palabra de cualquier apellido guardado ("mihai papoe" termina en
+  // "papoe"). Si dos jugadores distintos del circuito terminan en la misma
+  // palabra, no se elige ninguno: es la misma regla de "apellido único" de
+  // arriba, solo que buscando por el final en vez de por el texto completo.
+  if (parts.length > 1 && parts[parts.length - 1].length === 1) {
+    const inicialPedida = parts[parts.length - 1];
+    const cortoParts = parts.slice(0, -1);
+    const ultimaPalabra = cortoParts[cortoParts.length - 1];
+    const hits = new Set<number>();
+    for (const [surname, ids] of index.bySurname) {
+      const tokens = surname.split(' ');
+      if (tokens[tokens.length - 1] !== ultimaPalabra) continue;
+      // La INICIAL tiene que coincidir también: el apellido único evita
+      // fusionar a dos jugadores distintos, pero "Matsuda K." y "Matsuda R."
+      // comparten el mismo apellido y NO son la misma persona — sin esta
+      // comprobación el primer caso real que se probó resolvía "Matsuda K."
+      // contra el id de "Matsuda R." por error.
+      for (const id of ids) {
+        const slug = index.slugById.get(id);
+        const inicialGuardada = slug?.includes('-') ? slug.split('-').pop() : null;
+        if (inicialGuardada === inicialPedida) hits.add(id);
+      }
+    }
+    if (hits.size === 1) return { ok: true, playerId: [...hits][0], via: 'apellido' };
+    if (hits.size > 1) {
+      return { ok: false, reason: `apellido "${ultimaPalabra}" ambiguo (${hits.size} jugadores)`, candidates };
     }
   }
 

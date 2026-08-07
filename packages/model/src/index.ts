@@ -8,3 +8,8 @@ export * from './names';
 export * from './aces';
 export * from './markov';
 export * from './betting';
+export * from './explain';
+export * from './confidence';
+export * from './ace-probability';
+export * from './market';
+export * from './analysis-types';
