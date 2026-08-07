@@ -30,11 +30,10 @@ const nav = [
   <body class="min-h-dvh pb-20 lg:pb-0">
     <div class="mx-auto min-h-dvh max-w-[1500px] lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
       <aside class="sticky top-0 hidden h-dvh border-r border-line/70 bg-bg/80 p-5 backdrop-blur-xl lg:flex lg:flex-col">
-        <a href="/" class="flex items-center gap-3 no-underline">
-          <Logo class="h-9 w-9" />
-          <span class="font-display text-xl font-semibold tracking-tight text-ink">TENISMO</span>
+        <a href="/" class="block no-underline">
+          <Logo class="w-full max-w-[12.5rem]" />
         </a>
-        <p class="mt-2 pl-12 text-2xs uppercase tracking-[0.16em] text-ink-faint">Tennis intelligence</p>
+        <p class="mt-1.5 text-2xs uppercase tracking-[0.16em] text-ink-faint">Tennis intelligence</p>
         <nav class="mt-10 space-y-1.5" aria-label="Principal">
           {nav.map((n) => (
             <a href={n.href} aria-current={active === n.key ? 'page' : undefined} class:list={[
@@ -56,7 +55,7 @@ const nav = [
       <div class="min-w-0">
         <header class="sticky top-0 z-40 border-b border-line/70 bg-bg/80 backdrop-blur-xl lg:hidden">
           <div class="flex h-16 items-center justify-between px-4">
-            <a href="/" class="flex items-center gap-2.5 no-underline"><Logo /><span class="font-display text-lg font-semibold text-ink">TENISMO</span></a>
+            <a href="/" class="no-underline"><Logo class="h-8 w-auto" /></a>
             <a href="#buscar" class="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted no-underline">Buscar</a>
           </div>
         </header>
