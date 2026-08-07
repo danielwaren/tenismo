@@ -27,7 +27,7 @@ export default function ServeReturnComparisonChart({ rows, p1Name, p2Name }: { r
   const renamed = data.map((r) => ({ label: r.label, [p1Name]: r.p1, [p2Name]: r.p2, isRate: r.isRate }));
 
   return (
-    <ChartContainer config={config} className="w-full" style={{ height: Math.max(120, data.length * 34) }}>
+    <ChartContainer config={config} className="w-full" style={{ height: Math.max(90, data.length * 24) }}>
       <BarChart data={renamed} layout="vertical" margin={{ top: 4, right: 20, bottom: 4, left: 4 }}>
         <XAxis type="number" hide />
         <YAxis type="category" dataKey="label" width={120} tick={{ fill: chartColor.inkMuted, fontSize: 11 }} axisLine={false} tickLine={false} />

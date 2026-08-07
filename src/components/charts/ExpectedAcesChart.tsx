@@ -30,7 +30,7 @@ export default function ExpectedAcesChart({ p1, p2 }: { p1: AcePlayerDatum; p2: 
     <div className="grid gap-4 sm:grid-cols-2">
       <div>
         <p className="mb-1 text-2xs uppercase tracking-wide text-ink-faint">Aces esperados</p>
-        <ChartContainer config={expectedConfig} className="w-full" style={{ height: 120 }}>
+        <ChartContainer config={expectedConfig} className="w-full" style={{ height: 96 }}>
           <BarChart data={[p1, p2]} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="name" width={90} tick={{ fill: chartColor.inkMuted, fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -43,7 +43,7 @@ export default function ExpectedAcesChart({ p1, p2 }: { p1: AcePlayerDatum; p2: 
       {hasThresholds ? (
         <div>
           <p className="mb-1 text-2xs uppercase tracking-wide text-ink-faint">P(al menos N aces)</p>
-          <ChartContainer config={thresholdConfig} className="w-full" style={{ height: 120 }}>
+          <ChartContainer config={thresholdConfig} className="w-full" style={{ height: 96 }}>
             <BarChart
               data={[
                 { threshold: '3+', [p1.name]: p1.atLeast3, [p2.name]: p2.atLeast3 },

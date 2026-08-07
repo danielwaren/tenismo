@@ -27,7 +27,7 @@ export default function ServeReturnRadarChart({ metrics, p1Name, p2Name }: { met
   const renamed = data.map((m) => ({ label: m.label, [p1Name]: Math.round((m.p1 ?? 0) * 100), [p2Name]: Math.round((m.p2 ?? 0) * 100) }));
 
   return (
-    <ChartContainer config={config} className="mx-auto w-full max-w-sm" style={{ height: 260 }}>
+    <ChartContainer config={config} className="mx-auto w-full max-w-[16rem]" style={{ height: 190 }}>
       <RadarChart data={renamed}>
         <PolarGrid stroke={chartColor.line} />
         <PolarAngleAxis dataKey="label" tick={{ fill: chartColor.inkMuted, fontSize: 10 }} />

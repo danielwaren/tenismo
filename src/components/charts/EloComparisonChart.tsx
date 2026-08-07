@@ -24,7 +24,7 @@ export default function EloComparisonChart({ rows, p1Name, p2Name }: { rows: Elo
   const renamed = data.map((r) => ({ label: r.label, [p1Name]: r.p1, [p2Name]: r.p2 }));
 
   return (
-    <ChartContainer config={config} className="w-full" style={{ height: Math.max(100, data.length * 46) }}>
+    <ChartContainer config={config} className="w-full" style={{ height: Math.max(72, data.length * 30) }}>
       <BarChart data={renamed} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 4 }}>
         <XAxis type="number" domain={['dataMin - 40', 'dataMax + 40']} hide />
         <YAxis type="category" dataKey="label" width={110} tick={{ fill: chartColor.inkMuted, fontSize: 11 }} axisLine={false} tickLine={false} />

@@ -20,7 +20,7 @@ export default function ExpectedGamesChart({ dist }: { dist: ExpectedGamesDistri
   const relevant = histogram.filter((h) => h.probability >= 0.003);
 
   return (
-    <ChartContainer config={chartConfig} className="w-full" style={{ height: 200 }}>
+    <ChartContainer config={chartConfig} className="w-full" style={{ height: 140 }}>
       <AreaChart data={relevant} margin={{ top: 8, right: 8, bottom: 4, left: -16 }}>
         <defs>
           <linearGradient id="gamesFill" x1="0" y1="0" x2="0" y2="1">

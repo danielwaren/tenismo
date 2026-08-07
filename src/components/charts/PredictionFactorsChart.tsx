@@ -23,8 +23,10 @@ export default function PredictionFactorsChart({
 }: { factors: FactorDatum[]; p1Name: string; p2Name: string }) {
   if (!factors.length) return <ChartEmpty message="Sin factores con peso suficiente para mostrar." />;
 
-  const data = [...factors].sort((a, b) => Math.abs(b.pp) - Math.abs(a.pp));
-  const height = Math.max(120, data.length * 34);
+  const sorted = [...factors].sort((a, b) => Math.abs(b.pp) - Math.abs(a.pp));
+  const data = sorted.slice(0, 6);
+  const hidden = sorted.length - data.length;
+  const height = Math.max(90, data.length * 24);
 
   return (
     <div>
@@ -57,6 +59,9 @@ export default function PredictionFactorsChart({
           </Bar>
         </BarChart>
       </ChartContainer>
+      {hidden > 0 && (
+        <p className="mt-1 text-right text-[10px] text-ink-faint">+{hidden} factor{hidden === 1 ? '' : 'es'} menor{hidden === 1 ? '' : 'es'} no mostrado{hidden === 1 ? '' : 's'}</p>
+      )}
     </div>
   );
 }

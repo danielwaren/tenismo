@@ -7,22 +7,25 @@ import ExpectedAcesChart from './charts/ExpectedAcesChart';
 import EloComparisonChart from './charts/EloComparisonChart';
 import ServeReturnComparisonChart from './charts/ServeReturnComparisonChart';
 import ServeReturnRadarChart from './charts/ServeReturnRadarChart';
-import MatchProbabilityDonut from './charts/MatchProbabilityDonut';
-import ConfidenceGauge from './charts/ConfidenceGauge';
-import { ChartEmpty } from './charts/theme';
+import KpiRingCard from './charts/KpiRingCard';
+import KpiStatCard from './charts/KpiStatCard';
+import { chartColor, ChartEmpty } from './charts/theme';
 
 /**
  * Ficha de partido — pantalla de inteligencia de tenis.
  *
- * Layout tipo dashboard: en pantallas ≥lg (1024px) todo se acomoda en una
- * cuadrícula de 12 columnas para verse en el menor scroll posible (pedido
- * explícito: "todos los datos en una sola pantalla"). En mobile/tablet cada
- * sección sigue apilada a ancho completo — nunca se elimina información para
- * que quepa, solo se reorganiza el espacio.
+ * Layout tipo dashboard denso: una tira de tarjetas KPI compactas arriba
+ * (lectura inmediata, sin scroll) y el resto en una cuadrícula de 12
+ * columnas en pantallas ≥lg — pedido explícito: "no quiero tanto scroll,
+ * llenar de info al usuario de inmediato". Todos los gráficos usan
+ * ChartContainer/ChartConfig de shadcn/ui (src/components/ui/chart.tsx)
+ * sobre Recharts — ninguno es CSS/SVG a mano. En mobile/tablet cada sección
+ * sigue apilada a ancho completo — nunca se elimina información para que
+ * quepa, solo se comprime el tamaño de los gráficos y el padding.
  *
- * Orden de lectura: cabecera → pronóstico Tenismo + mercado (misma fila) →
- * por qué ese % + juegos probables (misma fila) → aces probables + saque/
- * resto (misma fila) → head-to-head (ancho completo).
+ * Orden de lectura: KPIs → cabecera → pronóstico Tenismo + mercado (misma
+ * fila) → por qué ese % + juegos probables + aces probables (misma fila,
+ * 3 columnas) → saque/resto → head-to-head.
  *
  * Todo lo etiquetado "Estimación Tenismo" sale de un cálculo propio (Elo,
  * motor punto a punto, Poisson sobre una media ajustada); todo lo que no dice
@@ -94,12 +97,48 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
 
   return (
     <div>
-      <a href="/" className="mb-4 inline-flex items-center gap-1 text-sm text-court-ink no-underline hover:text-court">← Volver</a>
+      <a href="/" className="mb-3 inline-flex items-center gap-1 text-sm text-court-ink no-underline hover:text-court">← Volver</a>
+
+      {/* TIRA DE KPI — lectura inmediata, sin scroll. Anillo solo en métricas
+          realmente 0-100 (probabilidad, confianza); el resto son tarjetas
+          planas para no inventar un "% de progreso" que el dato no tiene. */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {pctP1 !== null && favoriteName && (
+          <KpiRingCard
+            ringPct={Math.max(pctP1, 100 - pctP1)}
+            color={chartColor.p1}
+            big={favoriteName.split(' ')[0]}
+            label="Favorito Tenismo"
+          />
+        )}
+        {m.confidenceDetail && (
+          <KpiRingCard
+            ringPct={m.confidenceDetail.score}
+            color={m.confidenceDetail.band === 'BAJA' ? chartColor.live : chartColor.p1}
+            big={`${m.confidenceDetail.score}/100`}
+            label={`Confianza · ${m.confidenceDetail.band}`}
+          />
+        )}
+        <KpiStatCard big={odds2(m.market?.fairOddsModel ?? null)} label="Cuota justa" accent="bg-court" />
+        {m.market && m.market.edgePp !== null && (
+          <KpiStatCard
+            big={signedPct(m.market.edgePp / 100)}
+            label={`Edge · ${m.market.tierLabel}`}
+            accent={m.market.edgePp > 0 ? 'bg-court' : 'bg-ink-faint'}
+          />
+        )}
+        {m.expectedGames && (
+          <KpiStatCard big={`${m.expectedGames.meanGames.toFixed(1)} juegos`} label="Juegos esperados" accent="bg-hard" />
+        )}
+        {m.expectedAces && (
+          <KpiStatCard big={`${m.expectedAces.totalExpected.toFixed(1)} aces`} label="Aces esperados (total)" accent="bg-clay" />
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
-        {/* MATCH HEADER — ancho completo */}
+        {/* MATCH HEADER — ancho completo, compacto */}
         <div className="card overflow-hidden lg:col-span-12">
-          <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3 text-2xs text-ink-muted">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-2xs text-ink-muted">
             <span className={`chip ${tourChip(m.tour)}`}>{m.tour}</span>
             {m.surface && <span className={`chip ${['bg-hard/15 text-hard','bg-clay/15 text-clay','bg-grass/15 text-grass'][['hard','clay','grass'].indexOf(m.surface)] ?? 'bg-surface-2 text-ink-muted'}`}>{surfaceLabel(m.surface)}</span>}
             <span>{m.tournament}{m.round ? ` · ${m.round}` : ''}</span>
@@ -109,87 +148,45 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
             </span>
           </div>
 
-          <div className="px-5 py-4">
-            {[{ id: m.p1Id, slug: m.p1Slug, name: m.p1Name, won: played && p1Won, sets: m.sets.map((s) => s.p1) },
-              { id: m.p2Id, slug: m.p2Slug, name: m.p2Name, won: played && !p1Won, sets: m.sets.map((s) => s.p2) }]
+          <div className="px-4 py-2.5">
+            {[{ id: m.p1Id, slug: m.p1Slug, name: m.p1Name, won: played && p1Won, sets: m.sets.map((s) => s.p1), prob: pctP1 },
+              { id: m.p2Id, slug: m.p2Slug, name: m.p2Name, won: played && !p1Won, sets: m.sets.map((s) => s.p2), prob: pctP1 === null ? null : 100 - pctP1 }]
               .map((row, i) => (
-              <div key={i} className={`flex items-center justify-between gap-3 py-2 ${i === 0 ? 'border-b border-line/60' : ''}`}>
+              <div key={i} className={`flex items-center justify-between gap-3 py-1 ${i === 0 ? 'border-b border-line/60' : ''}`}>
                 <div className="flex min-w-0 items-center gap-2">
                   {played && (row.won
                     ? <span className="text-court" aria-label="Ganador">●</span>
                     : <span className="text-ink-faint">○</span>)}
-                  <a href={playerPath(row.id, row.slug)} className={`truncate font-display text-lg no-underline hover:text-court hover:underline ${row.won ? 'font-semibold text-ink' : 'text-ink'}`}>{row.name}</a>
+                  <a href={playerPath(row.id, row.slug)} className={`truncate font-display text-base no-underline hover:text-court hover:underline ${row.won ? 'font-semibold text-ink' : 'text-ink'}`}>{row.name}</a>
                 </div>
-                {row.sets.length > 0 && (
-                  <span className="flex shrink-0 gap-1.5 font-mono text-lg tabular-nums">
-                    {row.sets.map((g, j) => (
-                      <span key={j} className={row.won ? 'text-ink' : 'text-ink-muted'}>{g}</span>
-                    ))}
-                  </span>
-                )}
+                <div className="flex shrink-0 items-center gap-3">
+                  {row.sets.length > 0 && (
+                    <span className="flex gap-1.5 font-mono tabular-nums">
+                      {row.sets.map((g, j) => (
+                        <span key={j} className={row.won ? 'text-ink' : 'text-ink-muted'}>{g}</span>
+                      ))}
+                    </span>
+                  )}
+                  {row.prob !== null && <span className="w-10 text-right font-mono text-2xs tabular-nums text-ink-faint">{row.prob}%</span>}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* TENISMO PREDICTION — columna ancha */}
-        <div className="card p-5 lg:col-span-7">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-sm font-semibold text-ink">Pronóstico Tenismo</h2>
-            {m.confidenceDetail && (
-              <span
-                className={`chip ${CONFIDENCE_STYLE[m.confidenceDetail.band]}`}
-                title={m.confidenceDetail.explanation}
-              >
-                Confianza: {m.confidenceDetail.score}/100 · {m.confidenceDetail.band}
+        {/* TENISMO PREDICTION — columna ancha (la probabilidad ya está en el KPI de arriba; aquí va la comparativa) */}
+        <div className="card p-4 lg:col-span-7">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-semibold text-ink">Comparativa de jugadores</h2>
+            {favoriteName && (
+              <span className="text-2xs text-ink-faint">
+                Pronóstico: <span className="font-semibold text-ink">{favoriteName}</span>
               </span>
             )}
           </div>
 
-          {pctP1 !== null ? (
-            <>
-              <div className="grid grid-cols-[1fr_auto] items-center gap-4 sm:grid-cols-[1fr_auto_auto]">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <a href={playerPath(m.p1Id, m.p1Slug)} className="block truncate text-sm text-ink no-underline hover:text-court-ink">{m.p1Name}</a>
-                    <span className="font-mono text-2xl tabular-nums text-court">{pctP1}%</span>
-                    {m.market?.fairOddsModel !== undefined && (
-                      <span className="ml-2 hidden text-2xs text-ink-faint sm:inline">cuota justa {odds2(m.market.fairOddsModel)}</span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <a href={playerPath(m.p2Id, m.p2Slug)} className="block truncate text-sm text-ink no-underline hover:text-court-ink">{m.p2Name}</a>
-                    <span className="font-mono text-2xl tabular-nums text-ink-muted">{100 - pctP1}%</span>
-                    <span className="ml-2 hidden text-2xs text-ink-faint sm:inline">cuota justa {odds2(fairOddsP2)}</span>
-                  </div>
-                </div>
-                <MatchProbabilityDonut p1Name={m.p1Name} p2Name={m.p2Name} probP1={m.probP1!} />
-                {m.confidenceDetail && (
-                  <div className="hidden flex-col items-center sm:flex">
-                    <ConfidenceGauge score={m.confidenceDetail.score} band={m.confidenceDetail.band} />
-                    <span className="-mt-2 text-2xs uppercase tracking-wide text-ink-faint">Confianza</span>
-                  </div>
-                )}
-              </div>
-              <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-surface-2 sm:hidden">
-                <div className="bg-court" style={{ width: `${pctP1}%` }} />
-              </div>
-              {favoriteName && (
-                <p className="mt-3 text-sm text-ink-muted">
-                  Pronóstico Tenismo: <span className="font-semibold text-ink">{favoriteName}</span>
-                  {' · '}cuota justa <span className="font-mono text-ink">{odds2(m.market?.fairOddsModel ?? null)}</span>
-                </p>
-              )}
-              {m.confidence !== null && m.confidence < 0.5 && (
-                <p className="mt-1 text-2xs text-ink-faint">Historial insuficiente para paper trading.</p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-ink-faint">Sin pronóstico del modelo para este partido.</p>
-          )}
-
-          {/* Comparativa de jugadores (fusiona lo que antes era una tarjeta aparte). */}
-          <div className="mt-4 divide-y divide-line/50 border-t border-line/50">
+          {/* Comparativa de jugadores. */}
+          <div className="divide-y divide-line/50 border-t border-line/50">
             <StatRow label="Ranking (último dato)" a={s1.ranking === null ? '—' : `#${s1.ranking}`} b={s2.ranking === null ? '—' : `#${s2.ranking}`}
               aBetter={s1.ranking !== null && (s2.ranking === null || s1.ranking < s2.ranking)} bBetter={s2.ranking !== null && (s1.ranking === null || s2.ranking < s1.ranking)} />
             <StatRow label="Elo global" a={num(s1.eloOverall)} b={num(s2.eloOverall)}
@@ -234,7 +231,7 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
         {/* MARKET + CUOTAS — columna angosta, junto al pronóstico */}
         <div className="flex flex-col gap-4 lg:col-span-5">
           {m.market && (
-            <div className="card p-5">
+            <div className="card p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-display text-sm font-semibold text-ink">Mercado</h2>
                 <span className={`chip ${VALUE_TIER_STYLE[m.market.tier] ?? 'bg-surface-2 text-ink-muted'}`}>{m.market.tierLabel}</span>
@@ -273,7 +270,7 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
           )}
 
           {m.odds.length > 0 && (
-            <div className="card p-5">
+            <div className="card p-4">
               <h2 className="mb-3 font-display text-sm font-semibold text-ink">Cuotas reales</h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -304,55 +301,52 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
           )}
         </div>
 
-        {/* WHY X% + EN PALABRAS — media columna */}
-        {(m.waterfall && m.waterfall.steps.length > 0) || m.reasons.length > 0 ? (
-          <div className="flex flex-col gap-4 lg:col-span-6">
-            {m.waterfall && m.waterfall.steps.length > 0 && (
-              <div className="card p-5">
-                <h2 className="mb-1 font-display text-sm font-semibold text-ink">Qué pesa en el pronóstico</h2>
-                <p className="mb-4 text-2xs text-ink-faint">
-                  Puntos porcentuales sobre la base de 50% (el modelo no tiene sesgo de partida). La suma de
-                  todos los factores reconcilia exactamente con el {pctP1}% final — es un desglose secuencial
-                  (waterfall), no una aproximación.
-                </p>
-                <PredictionFactorsChart
-                  p1Name={m.p1Name} p2Name={m.p2Name}
-                  factors={m.waterfall.steps
-                    .filter((s) => Math.abs(s.pp) > 0.05)
-                    .map((s) => ({ name: s.name, label: FEATURE_ES[s.name] ?? s.name, pp: s.pp }))}
-                />
-              </div>
-            )}
+        {/* WHY X% — un tercio */}
+        {m.waterfall && m.waterfall.steps.length > 0 ? (
+          <div className="card p-4 lg:col-span-4">
+            <h2 className="mb-1 font-display text-sm font-semibold text-ink">Qué pesa en el pronóstico</h2>
+            <p className="mb-2 text-2xs text-ink-faint">
+              Puntos porcentuales sobre 50%; la suma reconcilia exacto con el {pctP1}% final (waterfall, no aproximación).
+            </p>
+            <PredictionFactorsChart
+              p1Name={m.p1Name} p2Name={m.p2Name}
+              factors={m.waterfall.steps
+                .filter((s) => Math.abs(s.pp) > 0.05)
+                .map((s) => ({ name: s.name, label: FEATURE_ES[s.name] ?? s.name, pp: s.pp }))}
+            />
             {m.reasons.length > 0 && (
-              <div className="card p-5">
-                <h2 className="mb-3 font-display text-sm font-semibold text-ink">En palabras</h2>
-                <ul className="space-y-2 text-sm text-ink-muted">
-                  {m.reasons.map((r, i) => (
-                    <li key={i} className="flex gap-2"><span className="text-court">·</span><span>{r}</span></li>
-                  ))}
-                </ul>
-              </div>
+              <ul className="mt-3 space-y-1 border-t border-line/50 pt-3 text-2xs text-ink-muted">
+                {m.reasons.slice(0, 4).map((r, i) => (
+                  <li key={i} className="flex gap-1.5"><span className="text-court">·</span><span>{r}</span></li>
+                ))}
+              </ul>
             )}
+          </div>
+        ) : m.reasons.length > 0 ? (
+          <div className="card p-4 lg:col-span-4">
+            <h2 className="mb-2 font-display text-sm font-semibold text-ink">En palabras</h2>
+            <ul className="space-y-1.5 text-sm text-ink-muted">
+              {m.reasons.map((r, i) => (
+                <li key={i} className="flex gap-2"><span className="text-court">·</span><span>{r}</span></li>
+              ))}
+            </ul>
           </div>
         ) : null}
 
-        {/* EXPECTED MATCH — juegos probables */}
-        <div className="card p-5 lg:col-span-6">
+        {/* EXPECTED MATCH — juegos probables, un tercio */}
+        <div className="card p-4 lg:col-span-4">
           <h2 className="mb-1 font-display text-sm font-semibold text-ink">Juegos probables</h2>
           {m.expectedGames ? (
             <>
-              <p className="mb-3 text-2xs leading-relaxed text-ink-faint">
-                Simulación Monte Carlo (motor punto a punto, {m.expectedGames.bestOf === 5 ? 'al mejor de 5' : 'al mejor de 3'}):
-                media <span className="font-mono text-ink">{m.expectedGames.meanGames.toFixed(1)}</span> juegos
-                (± {m.expectedGames.sdGames.toFixed(1)}), rango principal{' '}
-                <span className="font-mono text-ink">{m.expectedGames.rangeLow}–{m.expectedGames.rangeHigh}</span>.
-                Estimación Tenismo, no un dato observado.
+              <p className="mb-2 text-2xs leading-relaxed text-ink-faint">
+                Media <span className="font-mono text-ink">{m.expectedGames.meanGames.toFixed(1)}</span> (±{m.expectedGames.sdGames.toFixed(1)}),
+                rango <span className="font-mono text-ink">{m.expectedGames.rangeLow}–{m.expectedGames.rangeHigh}</span>. Estimación Tenismo.
               </p>
               <ExpectedGamesChart dist={m.expectedGames} />
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-2xs sm:grid-cols-3">
+              <div className="mt-2 grid grid-cols-3 gap-1 text-2xs">
                 {m.expectedGames.overUnder.map((row) => (
-                  <div key={row.line} className="flex items-center justify-between rounded-md bg-surface-2/50 px-2 py-1">
-                    <span className="text-ink-faint">Más de {row.line}</span>
+                  <div key={row.line} className="flex items-center justify-between rounded-md bg-surface-2/50 px-1.5 py-1">
+                    <span className="text-ink-faint">+{row.line}</span>
                     <span className="font-mono tabular-nums text-ink">{pct(row.over)}</span>
                   </div>
                 ))}
@@ -363,26 +357,23 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
           )}
         </div>
 
-        {/* EXPECTED ACES — aces probables */}
-        <div className="card p-5 lg:col-span-6">
+        {/* EXPECTED ACES — aces probables, un tercio */}
+        <div className="card p-4 lg:col-span-4">
           <h2 className="mb-1 font-display text-sm font-semibold text-ink">Aces probables</h2>
           {m.expectedAces ? (
             <>
-              <p className="mb-3 text-2xs leading-relaxed text-ink-faint">
-                Ace rate histórica (Tennis Abstract): {m.p1Name} {pct(m.expectedAces.historicalRateP1.value ?? 0, 1)} ·{' '}
-                {m.p2Name} {pct(m.expectedAces.historicalRateP2.value ?? 0, 1)} por juego al saque
-                {m.expectedAces.provenance.surface && m.expectedAces.provenance.surface !== 'all' ? ` en ${SURFACE_ES[m.expectedAces.provenance.surface] ?? m.expectedAces.provenance.surface}` : ' (perfil global, sin superficie)'}.
-                Aces esperados hoy: <span className="font-mono text-ink">{m.expectedAces.totalExpected.toFixed(1)}</span> en total
-                — Estimación Tenismo (ajustada por rival), no la misma cifra que la histórica.
+              <p className="mb-2 text-2xs leading-relaxed text-ink-faint">
+                Histórica: {m.p1Name.split(' ')[0]} {pct(m.expectedAces.historicalRateP1.value ?? 0, 1)} · {m.p2Name.split(' ')[0]} {pct(m.expectedAces.historicalRateP2.value ?? 0, 1)}/juego.
+                Total esperado <span className="font-mono text-ink">{m.expectedAces.totalExpected.toFixed(1)}</span> (estimación).
               </p>
               <ExpectedAcesChart
                 p1={{ name: m.p1Name, expected: m.expectedAces.p1.expected, atLeast3: m.expectedAces.p1.atLeast3, atLeast5: m.expectedAces.p1.atLeast5, atLeast7: m.expectedAces.p1.atLeast7 }}
                 p2={{ name: m.p2Name, expected: m.expectedAces.p2.expected, atLeast3: m.expectedAces.p2.atLeast3, atLeast5: m.expectedAces.p2.atLeast5, atLeast7: m.expectedAces.p2.atLeast7 }}
               />
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-2xs sm:grid-cols-4">
+              <div className="mt-2 grid grid-cols-2 gap-1 text-2xs">
                 {m.expectedAces.totalOverUnder.map((row) => (
-                  <div key={row.line} className="flex items-center justify-between rounded-md bg-surface-2/50 px-2 py-1">
-                    <span className="text-ink-faint">Total +{row.line}</span>
+                  <div key={row.line} className="flex items-center justify-between rounded-md bg-surface-2/50 px-1.5 py-1">
+                    <span className="text-ink-faint">+{row.line}</span>
                     <span className="font-mono tabular-nums text-ink">{pct(row.over)}</span>
                   </div>
                 ))}
@@ -394,7 +385,7 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
         </div>
 
         {/* SERVE/RETURN — ancho completo (radar + barras necesitan espacio) */}
-        <div className="card p-5 lg:col-span-12">
+        <div className="card p-4 lg:col-span-12">
           <h2 className="mb-1 font-display text-sm font-semibold text-ink">Diagnóstico de saque y resto</h2>
           <p className="mb-3 text-2xs text-ink-faint">Global de carrera (Tennis Abstract), no por superficie.</p>
           <div className="grid gap-4 sm:grid-cols-[minmax(0,17rem)_1fr]">
@@ -423,7 +414,7 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
 
         {/* Head-to-head — ancho completo */}
         {(m.h2hP1Wins + m.h2hP2Wins) > 0 && (
-          <div className="card p-5 lg:col-span-12">
+          <div className="card p-4 lg:col-span-12">
             <h2 className="mb-3 font-display text-sm font-semibold text-ink">Head-to-head</h2>
             <div className="mb-3 flex items-center justify-center gap-4">
               <span className="font-mono text-2xl tabular-nums text-court">{m.h2hP1Wins}</span>
