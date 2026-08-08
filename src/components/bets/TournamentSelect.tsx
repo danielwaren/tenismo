@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 
 interface TournamentHit {
-  id: number;
+  /** Clave de lista, ya prefijada por el endpoint (`db:` o `ch:`): conviven el
+   *  id numérico de la base y el slug de Challenger. */
+  id: string;
   name: string;
   tour: string;
   surface: string | null;
@@ -20,8 +22,9 @@ const SURFACE_LABEL: Record<string, string> = {
  * al abrir y se filtra en memoria — se muestra ENTERA al enfocar, sin escribir
  * nada, porque lo normal es apostar a algo que está en curso.
  *
- * Sigue admitiendo texto libre: torneos que la base no cubra (Challenger, ITF)
- * se pueden escribir igual.
+ * La lista trae ATP y WTA de la base, y los Challenger del día desde
+ * tennisexplorer (que no se guardan en la base). Sigue admitiendo texto libre
+ * para lo que ninguna de las dos fuentes cubra (ITF, exhibiciones).
  */
 export default function TournamentSelect({
   id, value, onChange, onPick, placeholder,
