@@ -1,14 +1,11 @@
 import type { APIRoute } from 'astro';
 import { getLiveTournaments, getOngoingTournaments, getUpcomingTournaments } from '../../../lib/queries';
 import { getChallengerCalendar } from '../../../lib/challenger';
+import { jsonCors as json, corsPreflight } from '../../../lib/api-cors';
 
 export const prerender = false;
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
+export const OPTIONS: APIRoute = async () => corsPreflight();
 
 interface ActiveTournament {
   /** Solo sirve de clave en la lista. Va prefijado porque conviven dos espacios
