@@ -8,13 +8,18 @@
  * `localhost:8081` (Expo web) a este dominio se bloquea en silencio y parece
  * "la API no responde" cuando en realidad respondió y el navegador la tiró.
  *
- * Solo GET/OPTIONS: estas rutas son de lectura, igual que el resto de la API
- * pública del sitio — la app no escribe nada directo a la base.
+ * GET+POST/OPTIONS, header `authorization` incluido: desde "Mi banca"
+ * (ago 2026) hay rutas móviles que sí escriben (`/api/mobile/bets/*`),
+ * autenticadas con el token de sesión de Supabase de quien llama. Esto es
+ * solo la lista de permitidos del preflight — declarativo, no otorga ningún
+ * permiso por sí solo: cada ruta sigue validando su propio método y, las que
+ * escriben, el Bearer token (ver `mobile-auth.ts`). Las rutas GET-only que ya
+ * existían no se ven afectadas — nunca reciben POST ni `authorization`.
  */
 export const CORS_HEADERS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, OPTIONS',
-  'access-control-allow-headers': 'content-type',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type, authorization',
 } as const;
 
 export function jsonCors(body: unknown, status = 200): Response {

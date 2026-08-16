@@ -63,6 +63,30 @@ export interface LiveSnapshot {
 let cache: { at: number; snapshot: LiveSnapshot } | null = null;
 let inFlight: Promise<LiveSnapshot> | null = null;
 
+// `loadLive()` hace varias queries secuenciales (una por partido en vivo, más
+// las de resolución de jugadores). Cada una ya tiene su propio techo de 8s vía
+// `statement_timeout` (ver db.ts), pero eso no cubre todo: si el pool de
+// conexiones queda en mal estado (conexión "medio abierta" tras un cancel del
+// pooler de Supabase — github.com/porsager/postgres#1089), el cliente puede
+// quedarse esperando una conexión libre que nunca llega, ANTES de que ningún
+// statement_timeout entre en juego. Sin este techo, esa espera colgaba
+// `getLiveSnapshot()` para siempre y con ella toda ruta que dependiera de
+// esta promesa. 20s da margen a una secuencia normal de varias queries de 8s
+// sin disparar en falso, pero garantiza que la promesa SIEMPRE se resuelva o
+// rechace — el `.catch()` de `getLiveSnapshot()` ya sabe responder con el
+// snapshot cacheado o con `status: 'unavailable'` cuando eso pasa.
+const LOAD_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}: tiempo de espera agotado (${ms}ms)`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 function fmtScore(sets: number[] | null): string | null {
   return sets?.length ? sets.join(' ') : null;
 }
@@ -197,7 +221,7 @@ async function loadLive(): Promise<LiveSnapshot> {
 export async function getLiveSnapshot(): Promise<LiveSnapshot> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.snapshot;
   if (inFlight) return inFlight;
-  const request: Promise<LiveSnapshot> = loadLive().then((snapshot) => {
+  const request: Promise<LiveSnapshot> = withTimeout(loadLive(), LOAD_TIMEOUT_MS, 'loadLive').then((snapshot) => {
     cache = { at: Date.now(), snapshot };
     return snapshot;
   }).catch((error): LiveSnapshot => {

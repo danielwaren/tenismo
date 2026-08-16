@@ -15,10 +15,15 @@ import {
  * @tti/model/betting.ts) — así "cuánto tengo" no depende de la memoria de
  * una conversación ni de lo que muestre la casa de apuestas.
  *
- * No hay tabla de usuarios en este proyecto (ver src/lib/db.ts: sin RLS, un
- * solo operador), así que no hay user_id ni verificación de propiedad — si el
- * proyecto gana autenticación multiusuario, este módulo es el que hay que
- * revisar primero.
+ * MULTI-USUARIO (ago 2026): `trading.astro` (web) sigue sin auth — su banca
+ * (id=1) tiene `user_id` NULL y `listBankrolls()`/`createBankroll()` sin
+ * argumentos se comportan EXACTAMENTE igual que antes. La app móvil (login
+ * con Google) le pasa `userId` a estas dos funciones; el resto de las
+ * funciones de este archivo (`getBankrollSummary`, `createBet`, `settleBet`,
+ * etc.) no necesitan saber de usuarios — la verificación de "¿esta banca es
+ * tuya?" vive una capa arriba, en las rutas API nuevas
+ * (`src/pages/api/mobile/bets/*.ts`), nunca acá: este módulo sigue siendo
+ * una capa de persistencia pura, sin noción de "quién pide esto".
  */
 
 export interface Bankroll {
@@ -26,6 +31,7 @@ export interface Bankroll {
   name: string;
   currency: string;
   initialBalance: number;
+  userId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -136,23 +142,50 @@ function mapBet(r: Record<string, unknown>): BetRecord {
 
 // ── Bankrolls ────────────────────────────────────────────────────────────────
 
-export async function listBankrolls(): Promise<Bankroll[]> {
+/**
+ * Sin `userId`: comportamiento IDÉNTICO a siempre (usado por `trading.astro`,
+ * que no tiene auth — lista todas las bancas). Con `userId`: solo las bancas
+ * de ese usuario, para la app móvil.
+ */
+export async function listBankrolls(userId?: string): Promise<Bankroll[]> {
   const c = db();
-  const res = await c.execute('select * from bankrolls order by id asc');
+  const res = userId
+    ? await c.execute({ sql: 'select * from bankrolls where user_id = ? order by id asc', args: [userId] })
+    : await c.execute('select * from bankrolls order by id asc');
   return res.rows.map((r) => ({
     id: Number(r.id),
     name: String(r.name),
     currency: String(r.currency),
     initialBalance: Number(r.initial_balance),
+    userId: (r.user_id as string | null) ?? null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   }));
+}
+
+/** Cuenta las bancas de un usuario — usado por el límite gratis/Premium en la ruta móvil. */
+export async function countBankrollsForUser(userId: string): Promise<number> {
+  const c = db();
+  const row = (
+    await c.execute({ sql: 'select count(*) n from bankrolls where user_id = ?', args: [userId] })
+  ).rows[0];
+  return Number(row?.n ?? 0);
+}
+
+/** Dueño de una banca (`null` si no existe o no tiene dueño) — usado para el chequeo de propiedad en la ruta móvil. */
+export async function getBankrollOwnerId(bankrollId: number): Promise<string | null> {
+  const c = db();
+  const row = (
+    await c.execute({ sql: 'select user_id from bankrolls where id = ?', args: [bankrollId] })
+  ).rows[0];
+  return row ? ((row.user_id as string | null) ?? null) : null;
 }
 
 export async function createBankroll(input: {
   name: string;
   currency: string;
   initialBalance: number;
+  userId?: string;
 }): Promise<number> {
   if (!input.name.trim()) throw new Error('El nombre de la banca no puede estar vacío.');
   if (!(input.initialBalance >= 0)) throw new Error('La banca inicial no puede ser negativa.');
@@ -161,8 +194,8 @@ export async function createBankroll(input: {
   const tx = await c.transaction('write');
   try {
     const ins = await tx.execute({
-      sql: 'insert into bankrolls (name, currency, initial_balance) values (?, ?, ?)',
-      args: [input.name.trim(), input.currency, round2(input.initialBalance)],
+      sql: 'insert into bankrolls (name, currency, initial_balance, user_id) values (?, ?, ?, ?)',
+      args: [input.name.trim(), input.currency, round2(input.initialBalance), input.userId ?? null],
     });
     const bankrollId = Number(ins.lastInsertRowid);
     await tx.execute({
@@ -286,6 +319,7 @@ export async function getBankrollSummary(bankrollId: number): Promise<BankrollSu
     name: String(bankrollRow.name),
     currency: String(bankrollRow.currency),
     initialBalance,
+    userId: (bankrollRow.user_id as string | null) ?? null,
     createdAt: String(bankrollRow.created_at),
     updatedAt: String(bankrollRow.updated_at),
     ...totals,

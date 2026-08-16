@@ -20,6 +20,33 @@ import postgres from 'postgres';
  * igual que con Turso — la contraseña de Postgres no sale del servidor.
  */
 
+/**
+ * Red de seguridad para todo el proceso: un solo `unhandledRejection` sin
+ * listener tumba el proceso Node entero (comportamiento por defecto desde
+ * Node 15, `--unhandled-rejections=throw`) — no solo la petición que lo causó.
+ *
+ * Se observó en local (sandbox Windows): una query de `live.ts` cancelada por
+ * el pooler de Supabase con "canceling statement due to statement timeout"
+ * dejaba el server entero sin responder — hasta la ruta raíz `/`, que no toca
+ * la base — y había que matar el proceso a mano. postgres.js tiene issues
+ * abiertos consistentes con esto: promesas internas (fetch de tipos en
+ * segundo plano, reconexión tras un cancel del pooler en modo transacción)
+ * que rechazan sin que el código de la app pueda capturarlas —
+ * github.com/porsager/postgres issues #279, #970, #1089.
+ *
+ * Esto no arregla la causa dentro de postgres.js, pero evita que un query
+ * roto se lleve puesto TODO el proceso. Guardado en globalThis porque Vite en
+ * dev recarga este módulo por HMR y `process` es el mismo proceso de principio
+ * a fin — sin el guard se acumularía un listener nuevo por cada recarga.
+ */
+const globalForRejectionGuard = globalThis as unknown as { __ttiUnhandledRejectionGuard?: boolean };
+if (!globalForRejectionGuard.__ttiUnhandledRejectionGuard) {
+  globalForRejectionGuard.__ttiUnhandledRejectionGuard = true;
+  process.on('unhandledRejection', (reason) => {
+    console.error('[db] unhandledRejection no capturada (el proceso sigue vivo):', reason);
+  });
+}
+
 // ── Tipos compatibles con @libsql/client (lo que el resto del proyecto espera) ──
 
 export interface ResultSet {
@@ -145,6 +172,22 @@ function getSql(): postgres.Sql {
     // fetch a una API externa (ESPN, tennis-data) sin mantener el proceso vivo
     // después del último query real.
     idle_timeout: 10,
+    // Recicla cada conexión del pool cada 30 min aunque siga en uso. Defensa
+    // contra conexiones que el pooler de Supabase (Supavisor, modo
+    // transacción) da por muertas de su lado sin avisarle a postgres.js —
+    // "medio abiertas": el cliente sigue esperando una respuesta que nunca
+    // llega. Sin esto, una conexión así puede quedar colgada indefinidamente
+    // (ver github.com/porsager/postgres#1089, #970).
+    max_lifetime: 60 * 30,
+    // GUC de Postgres, va en el paquete de arranque de cada conexión nueva —
+    // https://www.postgresql.org/docs/current/runtime-config-client.html.
+    // Mismo techo de 8s que ya usan las llamadas HTTP externas del proyecto
+    // (ver AbortController en challenger.ts): ningún query individual debe
+    // poder colgar una conexión más que eso. Es la causa concreta que se vio
+    // en local — "canceling statement due to statement timeout" — así que
+    // fijarlo explícito (en vez de depender del límite que imponga Supabase
+    // del otro lado) hace el comportamiento predecible y documentado acá.
+    connection: { statement_timeout: 8_000 },
   });
   return sqlClient;
 }

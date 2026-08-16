@@ -197,12 +197,28 @@ export function esChallenger(t: { name: string; slug: string }): boolean {
   return /challenger/i.test(t.name) || /challenger/i.test(t.slug);
 }
 
-/** Descarga la página de partidos del día. */
+/**
+ * Descarga la página de partidos del día.
+ *
+ * Con timeout explícito (mismo criterio que ya usa `challenger.ts` para
+ * Sportradar, 8s) — sin esto, un `fetch()` sin `signal` puede quedar
+ * colgado indefinidamente si tennisexplorer.com está lento o inalcanzable,
+ * y como `getChallengerCalendar()` se espera dentro de un `Promise.all`
+ * junto al resto del panel de inicio (web y móvil), un solo proveedor
+ * externo caído se llevaba puesta TODA la respuesta, no solo esta sección.
+ */
 export async function fetchMatchesPage(path = '/matches/'): Promise<string> {
   assertAllowedPath(path);
-  const res = await fetch(`${TE_BASE}${path}`, {
-    headers: { 'User-Agent': TE_USER_AGENT, Accept: 'text/html' },
-  });
-  if (!res.ok) throw new Error(`tennisexplorer HTTP ${res.status}`);
-  return res.text();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(`${TE_BASE}${path}`, {
+      headers: { 'User-Agent': TE_USER_AGENT, Accept: 'text/html' },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`tennisexplorer HTTP ${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
 }
