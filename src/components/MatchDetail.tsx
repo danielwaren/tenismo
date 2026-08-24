@@ -1,6 +1,6 @@
 import type { MatchDetail } from '../lib/queries';
 import { surfaceLabel, fmtDate, pct, signedPct, SURFACE_ES, tourChip } from '../lib/format';
-import { playerPath } from '../lib/urls';
+import { playerPath, matchPath } from '../lib/urls';
 import PredictionFactorsChart from './charts/PredictionFactorsChart';
 import PlayerComparisonChart from './charts/PlayerComparisonChart';
 import ExpectedGamesChart from './charts/ExpectedGamesChart';
@@ -10,6 +10,8 @@ import ServeReturnRadarChart from './charts/ServeReturnRadarChart';
 import KpiRingCard from './charts/KpiRingCard';
 import KpiStatCard from './charts/KpiStatCard';
 import { chartColor, ChartEmpty } from './charts/theme';
+import ShareToX from './ShareToX';
+import { SITE_ORIGIN } from '../lib/x-share';
 
 /**
  * Ficha de partido — pantalla de inteligencia de tenis.
@@ -248,6 +250,13 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
               </p>
             </div>
           )}
+
+          <ShareToX
+            p1Name={m.p1Name} p2Name={m.p2Name} probP1={m.probP1}
+            tour={m.tour} tournament={m.tournament} round={m.round}
+            status={m.status} p1Won={m.p1Won} sets={m.sets}
+            matchUrl={`${SITE_ORIGIN}${matchPath(m)}`}
+          />
 
           {m.odds.length > 0 && (
             <div className="card p-4">
