@@ -10,7 +10,8 @@ const json = (body: unknown, status = 200) =>
   });
 
 /**
- * Reinicia la banca del Paper Trading (modo auditoría).
+ * Reinicia la banca del Paper Trading (cualquiera que sea `strategy` en
+ * `paper_trading_config` — Favorito o Value, ver docs/13-paradigma-favoritos.md).
  *
  * Borra TODAS las apuestas simuladas de `paper_trades`. Es seguro: esta banca
  * no es dinero real ni una decisión del usuario — la coloca sola el cron

@@ -1744,6 +1744,8 @@ export async function getModelWeights(): Promise<ModelWeight[]> {
 
 export interface PaperSummary {
   valueEnabled: boolean;
+  /** 'favorite' (aciertos, por defecto desde ago 2026) o 'value' (legado, ver docs/04). */
+  strategy: 'favorite' | 'value';
   initialBankroll: number;
   total: number;
   open: number;
@@ -1754,6 +1756,8 @@ export interface PaperSummary {
   profit: number;
   staked: number;
   roi: number | null;
+  /** % de aciertos sobre apuestas ya liquidadas (gana o pierde; push no cuenta). null si aún no hay ninguna liquidada. */
+  hitRate: number | null;
   clvMean: number | null;
   clvPositive: number;
   clvMeasured: number;
@@ -1783,17 +1787,22 @@ export async function getPaperSummary(): Promise<PaperSummary | null> {
   const openStake = Number((await c.execute(
     "select coalesce(sum(stake),0) v from paper_trades where status='open'",
   )).rows[0].v);
+  const won = Number(s.won);
+  const lost = Number(s.lost);
+  const settled = won + lost; // push (void) no cuenta como acierto ni fallo
   return {
     valueEnabled: Number(cfg.value_enabled) === 1,
+    strategy: cfg.strategy === 'value' ? 'value' : 'favorite',
     initialBankroll: initial,
     total: Number(s.n),
     open: Number(s.open),
-    won: Number(s.won),
-    lost: Number(s.lost),
+    won,
+    lost,
     voidCount: Number(s.voidc),
     profit,
     staked,
     roi: staked > 0 ? (profit / staked) * 100 : null,
+    hitRate: settled > 0 ? (won / settled) * 100 : null,
     clvMean: s.clv_mean === null ? null : Number(s.clv_mean),
     clvPositive: Number(s.clv_pos),
     clvMeasured: Number(s.clv_n),

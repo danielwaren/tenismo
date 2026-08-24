@@ -34,13 +34,25 @@ const ETIQUETA: Record<string, string> = {
 ---
 
 <Base subtitle="Simulador con dinero ficticio y cuotas reales. No ejecuta nada real." active="paper">
-  <div class="mb-6 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm leading-relaxed text-amber-100/80">
-    <strong class="text-amber-200">Modo auditoría.</strong> El backtest sobre 9.861 partidos fuera
-    de muestra demostró que la ventaja del modelo es <em>anti-predictiva</em>: cuanta más declara,
-    más se pierde. Por eso esto no es una estrategia — está para medir <strong>CLV</strong> (si la
-    cuota tomada resultó mejor que la de cierre), que es la única señal capaz de detectar ventaja
-    real antes de que el beneficio se distinga de la suerte.
-  </div>
+  {summary?.strategy === 'value' ? (
+    <div class="mb-6 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm leading-relaxed text-amber-100/80">
+      <strong class="text-amber-200">Modo Value (legado).</strong> El backtest sobre 9.861 partidos fuera
+      de muestra demostró que la ventaja del modelo es <em>anti-predictiva</em>: cuanta más declara,
+      más se pierde. Esto no es una estrategia — está para medir <strong>CLV</strong> (si la
+      cuota tomada resultó mejor que la de cierre), que es la única señal capaz de detectar ventaja
+      real antes de que el beneficio se distinga de la suerte.
+    </div>
+  ) : (
+    <div class="mb-6 rounded-lg border border-court/30 bg-court/10 p-4 text-sm leading-relaxed text-ink-muted">
+      <strong class="text-court-ink">Modo Favorito.</strong> El backtest sobre 9.861 partidos demostró que
+      perseguir la "ventaja" del modelo es anti-predictivo — el mercado está mejor calibrado. Por eso el
+      simulador ya no apuesta contra el mercado: apuesta CON él, al lado que da como favorito claro, con
+      stake plano. El objetivo es el <strong class="text-court-ink">% de aciertos</strong>, no el value — el
+      ROI seguirá rondando ligeramente negativo por el margen de la casa, igual que seguir a ciegas al
+      mejor precio; lo que cambia es que la mayoría de picks deberían ganar. Detalle en
+      <a href="/guia" class="text-court-ink underline">la guía</a>.
+    </div>
+  )}
 
   <div class="mb-6 rounded-lg border border-line bg-surface-2/40 p-4 text-xs leading-relaxed text-ink-muted">
     Tres mercados: <strong class="text-ink">Ganador</strong>, <strong class="text-ink">Total de juegos</strong>
@@ -75,16 +87,23 @@ const ETIQUETA: Record<string, string> = {
 
   {summary && summary.total > 0 ? (
     <>
-      <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <div class="card p-4">
           <div class="text-xs uppercase tracking-wide text-ink-muted">Banca</div>
           <div class="mt-1 font-mono text-2xl tabular-nums text-court">{f2(summary.bankroll)}</div>
           <div class="mt-0.5 text-xs text-ink-faint">de {f2(summary.initialBankroll)} inicial</div>
         </div>
+        <div class="card p-4 border-court/30">
+          <div class="text-xs uppercase tracking-wide text-ink-muted">% Aciertos</div>
+          <div class={`mt-1 font-mono text-2xl tabular-nums ${summary.hitRate !== null && summary.hitRate >= 50 ? 'text-court' : 'text-ink'}`}>
+            {summary.hitRate === null ? '—' : `${summary.hitRate.toFixed(1)}%`}
+          </div>
+          <div class="mt-0.5 text-xs text-ink-faint">{summary.won}G / {summary.lost}P liquidadas</div>
+        </div>
         <div class="card p-4">
           <div class="text-xs uppercase tracking-wide text-ink-muted">Apuestas</div>
           <div class="mt-1 font-mono text-2xl tabular-nums">{summary.total}</div>
-          <div class="mt-0.5 text-xs text-ink-faint">{summary.open} abiertas · {summary.won}G / {summary.lost}P</div>
+          <div class="mt-0.5 text-xs text-ink-faint">{summary.open} abiertas</div>
         </div>
         <div class="card p-4">
           <div class="text-xs uppercase tracking-wide text-ink-muted">ROI</div>

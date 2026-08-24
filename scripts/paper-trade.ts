@@ -9,21 +9,29 @@
  * NO ejecuta apuestas reales, no habla con ninguna casa, no mueve dinero. Solo
  * escribe en `paper_trades`.
  *
- * MODO AUDITORÍA (paper_trading_config.value_enabled = 0, el valor por defecto):
- * el backtest sobre 9.861 partidos fuera de muestra demostró que la "ventaja"
- * del modelo es ANTI-predictiva — cuanta más declara, más se pierde (ver
- * docs/04-backtest-paper-trading.md). Así que esto NO es una estrategia: sirve
- * para medir CLV, que es la única señal capaz de detectar ventaja real antes de
- * que el beneficio se distinga de la suerte.
+ * ESTRATEGIA (paper_trading_config.strategy):
+ *   'favorite' (por defecto desde ago 2026): el backtest sobre 9.861 partidos
+ *   fuera de muestra demostró que la "ventaja" del modelo es ANTI-predictiva
+ *   — cuanta más declara, más se pierde (ver docs/04-backtest-paper-trading.md
+ *   y docs/13-paradigma-favoritos.md) — porque el mercado está mejor calibrado
+ *   que el modelo. Este modo deja de perseguir esa "ventaja" y persigue
+ *   ACIERTOS: coloca la apuesta en el lado que el propio mercado da como
+ *   favorito claro (`decideFavorite`, packages/model/src/value.ts), con stake
+ *   plano. El modelo no decide nada aquí, solo se guarda como dato informativo.
+ *   'value' (legado, para quien quiera seguir midiendo CLV con la lógica
+ *   anterior): exige ventaja mínima del modelo sobre el mercado (`decideBet`).
  *
- * Regla no negociable: la cuota siempre viene de una casa real. Si un partido no
- * tiene cuota registrada, no se genera apuesta.
+ * Regla no negociable en ambos modos: la cuota siempre viene de una casa real.
+ * Si un partido no tiene cuota registrada, no se genera apuesta.
  */
 import { db } from '../src/lib/db';
 import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
 import { getMarkovInputs } from '../src/lib/queries';
-import { decideBet, devigTwoWay, settleProfit, clv, simulateMatch, type StakeRules } from '@tti/model';
+import {
+  decideBet, decideFavorite, edge as computeEdge, devigTwoWay, settleProfit, clv, simulateMatch,
+  type StakeRules, type FavoriteRules,
+} from '@tti/model';
 
 loadEnv();
 
@@ -37,13 +45,18 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
   const cfg = (await client.execute('select * from paper_trading_config where id = 1')).rows[0];
   if (!cfg) { console.log('Sin configuración de paper trading.'); return; }
 
+  const strategy = cfg.strategy === 'value' ? 'value' : 'favorite'; // por defecto Favorito si la columna aún no existe/está vacía
   const rules: StakeRules = {
     kellyDivisor: Number(cfg.kelly_divisor),
     maxStakePct: Number(cfg.max_stake_pct),
     minEdge: Number(cfg.min_edge),
     minConfidence: Number(cfg.min_confidence),
   };
-  const valueEnabled = Number(cfg.value_enabled) === 1;
+  const favoriteRules: FavoriteRules = {
+    minFavoriteProb: Number(cfg.min_favorite_prob ?? 0.62),
+    minConfidence: Number(cfg.min_confidence),
+    stakePct: Number(cfg.favorite_stake_pct ?? 0.015),
+  };
   const version = String(
     (await client.execute("select v from app_config where k = 'model_version'")).rows[0]?.v ?? '',
   );
@@ -57,7 +70,7 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
     })).rows[0].b,
   );
 
-  console.log(`Banca disponible: ${bankroll.toFixed(2)}   ·   modo ${valueEnabled ? 'VALUE' : 'AUDITORÍA (value_enabled=0)'}`);
+  console.log(`Banca disponible: ${bankroll.toFixed(2)}   ·   modo ${strategy === 'favorite' ? 'FAVORITO (acierto, no valor)' : 'VALUE (legado)'}`);
   if (bankroll <= 0) { console.log('Sin banca disponible: no se coloca nada.'); return; }
 
   const stmts: { sql: string; args: unknown[] }[] = [];
@@ -68,14 +81,28 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
     line: number | null, candidatos: { sel: 'p1' | 'p2' | 'over' | 'under'; modelProb: number; odds: number; devigedProb: number; book: string }[],
     confidence: number,
   ): void => {
-    let mejor: (typeof candidatos)[number] & { d: ReturnType<typeof decideBet> } | null = null;
-    for (const c of candidatos) {
-      const d = decideBet({ ...c, confidence }, rules);
-      if (d.place && (!mejor || d.edge > mejor.d.edge)) mejor = { ...c, d };
+    let mejor: (typeof candidatos)[number] & { d: { place: boolean; reason: string; stakeFraction: number } } | null = null;
+
+    if (strategy === 'favorite') {
+      // La selección la hace el MERCADO: se queda con el candidato de mayor
+      // probabilidad devigada, no con el de mayor "ventaja" del modelo.
+      for (const c of candidatos) {
+        const d = decideFavorite({ devigedProb: c.devigedProb, odds: c.odds, confidence }, favoriteRules);
+        if (d.place && (!mejor || c.devigedProb > mejor.devigedProb)) mejor = { ...c, d };
+      }
+    } else {
+      for (const c of candidatos) {
+        const d = decideBet({ ...c, confidence }, rules);
+        if (d.place && (!mejor || computeEdge(c.modelProb, c.devigedProb) > computeEdge(mejor.modelProb, mejor.devigedProb))) mejor = { ...c, d };
+      }
     }
     if (!mejor) return;
     const stake = Math.round(bankroll * mejor.d.stakeFraction * 100) / 100;
     if (!(stake > 0.01)) return;
+
+    // `edge` se guarda siempre como dato informativo (modelo vs. mercado),
+    // aunque en modo Favorito no sea lo que decidió la apuesta.
+    const edgeGuardado = computeEdge(mejor.modelProb, mejor.devigedProb);
 
     stmts.push({
       sql: `insert into paper_trades
@@ -86,7 +113,7 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       args: [
         matchId, market, mejor.sel, line, mejor.book, mejor.odds,
         Math.round(mejor.devigedProb * 1e4) / 1e4, Math.round(mejor.modelProb * 1e4) / 1e4,
-        Math.round(mejor.d.edge * 1e4) / 1e4, confidence, stake, Math.round(bankroll * 100) / 100, version,
+        Math.round(edgeGuardado * 1e4) / 1e4, confidence, stake, Math.round(bankroll * 100) / 100, version,
       ],
     });
     bankroll -= stake;

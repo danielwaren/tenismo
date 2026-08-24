@@ -1,3 +1,9 @@
+> **Actualización (ago 2026):** este backtest sigue siendo la razón por la que
+> `value_enabled`/modo Value se abandonó como estrategia por defecto. La
+> consecuencia práctica que se sacó de él —dejar de perseguir "ventaja" y
+> apostar con el mercado en vez de contra él— está en
+> [13-paradigma-favoritos.md](./13-paradigma-favoritos.md).
+
 # Backtest del Paper Trading — la ventaja del modelo es anti-predictiva
 
 Antes de conectar The Odds API se probó el simulador contra las cuotas reales

@@ -58,7 +58,11 @@ const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : '—');
         Es más: cuando el modelo <em>más</em> discrepa del mercado es cuando <em>más</em> se equivoca.
         Un backtest del simulador mostró que apostar a sus mayores "ventajas" pierde más, no menos. Por
         eso el <a href="/paper-trading" class="text-court no-underline hover:underline">Paper Trading</a>
-        está en modo auditoría: no busca ganar, sino medir CLV.
+        dejó de perseguir esa "ventaja": ahora apuesta con el mercado, no contra él —al favorito claro
+        según la cuota devigada, con stake plano— para maximizar el % de aciertos en vez del value. El
+        ROI seguirá rondando ligeramente negativo por el margen de la casa (es matemáticamente inevitable
+        sin una ventaja real), pero la mayoría de los picks deberían ganar, y el CLV se sigue midiendo
+        para detectar si algún día hay ventaja real que valga la pena perseguir.
       </p>
     </section>
 

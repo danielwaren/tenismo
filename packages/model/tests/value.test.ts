@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   edge, kellyFraction, decideBet, clv, settleProfit, devigTwoWay,
-  DEFAULT_STAKE_RULES,
+  DEFAULT_STAKE_RULES, decideFavorite, DEFAULT_FAVORITE_RULES,
 } from '../src/index';
 
 describe('ventaja sobre el mercado', () => {
@@ -75,6 +75,39 @@ describe('decideBet', () => {
       expect(d.place).toBe(false);
       expect(d.stakeFraction).toBe(0);
     }
+  });
+});
+
+describe('decideFavorite', () => {
+  it('apuesta al favorito del mercado cuando supera el mínimo exigido', () => {
+    const d = decideFavorite({ devigedProb: 0.7, odds: 1.35, confidence: 0.9 });
+    expect(d.place).toBe(true);
+    expect(d.stakeFraction).toBe(DEFAULT_FAVORITE_RULES.stakePct);
+    expect(d.reason).toContain('favorito del mercado');
+  });
+
+  it('el stake es siempre plano, no escala con lo favorito que sea', () => {
+    const flojo = decideFavorite({ devigedProb: 0.63, odds: 1.55, confidence: 0.9 });
+    const extremo = decideFavorite({ devigedProb: 0.95, odds: 1.03, confidence: 0.9 });
+    expect(flojo.stakeFraction).toBe(extremo.stakeFraction);
+  });
+
+  it('rechaza cuando el mercado no lo da como favorito claro', () => {
+    const d = decideFavorite({ devigedProb: 0.55, odds: 1.8, confidence: 0.9 });
+    expect(d.place).toBe(false);
+    expect(d.reason).toContain('favorito del mercado');
+    expect(d.stakeFraction).toBe(0);
+  });
+
+  it('rechaza los cold start por confianza y lo explica', () => {
+    const d = decideFavorite({ devigedProb: 0.8, odds: 1.2, confidence: 0.2 });
+    expect(d.place).toBe(false);
+    expect(d.reason).toContain('historial insuficiente');
+  });
+
+  it('rechaza cuotas inválidas', () => {
+    expect(decideFavorite({ devigedProb: 0.8, odds: 1, confidence: 0.9 }).place).toBe(false);
+    expect(decideFavorite({ devigedProb: 0.8, odds: 0.5, confidence: 0.9 }).reason).toContain('cuota inválida');
   });
 });
 
