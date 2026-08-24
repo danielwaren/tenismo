@@ -179,6 +179,19 @@ function getSql(): postgres.Sql {
     // llega. Sin esto, una conexión así puede quedar colgada indefinidamente
     // (ver github.com/porsager/postgres#1089, #970).
     max_lifetime: 60 * 30,
+    // Techo para EMPEZAR una conexión nueva (TCP + handshake TLS + auth), en
+    // segundos. `statement_timeout` de abajo solo protege una vez que ya hay
+    // conexión y el query está corriendo — esta fase de antes no tenía techo
+    // ninguno. Reproducido en local (ago 2026): con el pool en mal estado tras
+    // un cancel del pooler, una petición nueva se quedaba esperando una
+    // conexión que nunca llegaba — no 8s, sino indefinidamente (varios
+    // minutos, hasta matar el proceso a mano) — y como esto pasa ANTES de
+    // cualquier query, se colgaba CUALQUIER ruta, no solo la que tocó el
+    // problema originalmente (ver getLiveSnapshot en live.ts, que ya tiene su
+    // propio techo de 20s por el mismo motivo, pero solo cubre esa función:
+    // el resto de rutas de src/lib/queries.ts no pasan por ningún timeout
+    // propio y dependían enteramente de este valor de postgres.js).
+    connect_timeout: 8,
     // GUC de Postgres, va en el paquete de arranque de cada conexión nueva —
     // https://www.postgresql.org/docs/current/runtime-config-client.html.
     // Mismo techo de 8s que ya usan las llamadas HTTP externas del proyecto
