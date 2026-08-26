@@ -12,6 +12,7 @@ import KpiStatCard from './charts/KpiStatCard';
 import { chartColor, ChartEmpty } from './charts/theme';
 import ShareToX from './ShareToX';
 import { SITE_ORIGIN } from '../lib/x-share';
+import AdSlot from './AdSlot';
 
 /**
  * Ficha de partido — pantalla de inteligencia de tenis.
@@ -485,6 +486,8 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
           )}
         </div>
       </div>
+
+      <AdSlot slot="match-detail-bottom" />
     </div>
   );
 }

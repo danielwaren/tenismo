@@ -1,0 +1,7 @@
+# Vacío a propósito: sin cuenta de red publicitaria todavía.
+#
+# Cuando se decida una red (ver docs/15-monetizacion.md — hay una decisión de
+# política de contenido de apuestas pendiente antes de elegir), este archivo
+# lleva la línea que esa red exige para verificar el dominio, por ejemplo
+# (Google AdSense):
+#   google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0

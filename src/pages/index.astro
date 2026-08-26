@@ -5,6 +5,7 @@ import MatchBoard from '../components/MatchBoard.tsx';
 import LiveMatches from '../components/LiveMatches.tsx';
 import TournamentCards from '../components/TournamentCards.astro';
 import ChallengerCalendar from '../components/ChallengerCalendar.astro';
+import AdSlot from '../components/AdSlot.tsx';
 import {
   getStats, getUpcomingMatches, getPaperSummary,
   getUpcomingTournaments, getOngoingTournaments, getRecentTournaments,
@@ -109,6 +110,8 @@ const cards = [
       </div>
     ))}
   </section>
+
+  <AdSlot slot="home-top" />
 
   {/* En vivo: se hidrata y se auto-refresca; si no hay nada, no pinta nada. */}
   <LiveMatches client:load initial={liveMatches} initialAces={aces} initialStatus={liveSnapshot.status} initialCoverage={liveSnapshot.coverage} />
