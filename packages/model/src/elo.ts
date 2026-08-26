@@ -206,6 +206,8 @@ export function updateRatings(
     series?: string | null;
     /** Ronda, para escalar K. */
     round?: string | null;
+    /** Superficie del partido, solo para etiquetar `updates.p1Surface/p2Surface` con su scope real. */
+    surface?: Surface | null;
   },
   params: EloParams = DEFAULT_ELO,
 ): {
@@ -238,6 +240,11 @@ export function updateRatings(
     delta: after.elo - before.elo,
   });
 
+  // Bug encontrado ago 2026: las cuatro entradas etiquetaban scope='all',
+  // incluidas p1Surface/p2Surface — sin efecto en los ratings en sí (nada lee
+  // `.updates`, solo `.p1Overall`/`.p1Surface`/etc.), pero el campo mentía si
+  // algo llegara a inspeccionarlo.
+  const surfaceScope: RatingScope = args.surface ?? 'all';
   return {
     p1Overall,
     p1Surface,
@@ -245,9 +252,9 @@ export function updateRatings(
     p2Surface,
     updates: {
       p1Overall: mk('all', args.p1Overall, p1Overall),
-      p1Surface: mk('all', args.p1Surface, p1Surface),
+      p1Surface: mk(surfaceScope, args.p1Surface, p1Surface),
       p2Overall: mk('all', args.p2Overall, p2Overall),
-      p2Surface: mk('all', args.p2Surface, p2Surface),
+      p2Surface: mk(surfaceScope, args.p2Surface, p2Surface),
     },
   };
 }

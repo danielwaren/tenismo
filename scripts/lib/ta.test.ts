@@ -111,7 +111,7 @@ describe('parsePlayerPage — mapeo de columnas', () => {
   it('lee la cabecera del partido', () => {
     expect(doha.eventDate).toBe('2017-01-02'); // inicio del torneo, no del partido
     expect(doha.event).toBe('Doha');
-    expect(doha.surface).toBe('Hard');
+    expect(doha.surface).toBe('hard'); // normalizado a minúscula — ver normalizeSurface en ta.ts
     expect(doha.level).toBe('A');
     expect(doha.round).toBe('F');
     expect(doha.bestOf).toBe(3);

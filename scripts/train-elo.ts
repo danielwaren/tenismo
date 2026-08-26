@@ -213,7 +213,17 @@ async function main() {
       -- más completo que la fusión ligera, y no se duplican: promote-challenger
       -- marca su \`ta_matches.link_status\` como 'linked', así que la fusión de
       -- abajo (que solo toma 'no_candidate') ya no vuelve a tocarlos.
-      and m.source in ('tennis-data', 'tennis-abstract')
+      --
+      -- 'espn'/'the-odds-api' (ago 2026): un partido programado que se juega
+      -- llega aquí completado con SU fuente de origen — reconcile.ts solo lo
+      -- reescribe a 'tennis-data' cuando esa fuente TAMBIÉN publica el mismo
+      -- partido (y ahí borra el duplicado de ESPN, sin riesgo de contar dos
+      -- veces: ver reconcile.ts, bloque "duplicados ESPN→tennis-data"). Hasta
+      -- 90 días de historial mostraron 590 partidos completados que se
+      -- quedaban con esa fuente para siempre porque tennis-data.co.uk nunca
+      -- llegó a publicarlos — sin entrar aquí, esos resultados no actualizan
+      -- NINGÚN rating ni generan predicción, silenciosamente, para siempre.
+      and m.source in ('tennis-data', 'tennis-abstract', 'espn', 'the-odds-api')
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);

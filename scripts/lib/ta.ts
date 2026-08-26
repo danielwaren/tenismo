@@ -255,6 +255,22 @@ const str = (v: unknown): string | null => {
   return s.length ? s : null;
 };
 
+/**
+ * Tennis Abstract publica la superficie en Title Case ("Hard", "Clay") — el
+ * resto de fuentes del proyecto (tennis-data, ESPN, The Odds API, ver
+ * scripts/lib/odds-api.ts) usan minúscula ('hard', 'clay'). Sin normalizar
+ * acá, `matches.surface`/`player_ratings.surface` acababan con DOS filas
+ * para el mismo jugador y superficie ("Clay" y "clay" nunca se mezclan en un
+ * `Map` ni en un `group by`) — cada una viendo solo la mitad del historial
+ * real. Encontrado ago 2026: 33.556 partidos de Tennis Abstract con la
+ * superficie descuadrada frente al resto del dataset, degradando
+ * silenciosamente `eloDiffSurface` (feature top del modelo) para cualquier
+ * jugador con historial de Challenger o pre-2013.
+ */
+function normalizeSurface(s: string | null): string | null {
+  return s ? s.toLowerCase() : s;
+}
+
 function readStats(row: string[], at: number): SideStats {
   const [ace, df, svpt, firstIn, firstWon, secondWon, svGms, bpSaved, bpFaced] = Array.from(
     { length: STATS_WIDTH },
@@ -357,7 +373,7 @@ export function parsePlayerPage(html: string, expectedTaName: string): TaPlayerP
       eventDate,
       event: str(row[COL.event]) ?? '(sin torneo)',
       level: str(row[COL.level]),
-      surface: str(row[COL.surface]),
+      surface: normalizeSurface(str(row[COL.surface])),
       round,
       bestOf: num(row[COL.bestOf]),
       score: str(row[COL.score]),
