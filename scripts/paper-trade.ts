@@ -32,6 +32,7 @@ import {
   decideBet, decideFavorite, edge as computeEdge, devigTwoWay, settleProfit, clv, simulateMatch,
   type StakeRules, type FavoriteRules,
 } from '@tti/model';
+import { broadcastPush } from '../src/lib/push';
 
 loadEnv();
 
@@ -75,6 +76,10 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
 
   const stmts: { sql: string; args: unknown[] }[] = [];
   let colocadas = 0;
+  // Para el push de "oportunidades de cuotas" al final — necesita nombres de
+  // jugador, que colocarUna no tiene a mano (solo matchId), así que se
+  // resuelven en un solo batch después de terminar de colocar.
+  const placedPicks: { matchId: number; market: string; sel: string; odds: number }[] = [];
 
   const colocarUna = (
     matchId: number, playedOn: string, market: 'ML' | 'TOTAL_GAMES' | 'GAMES_HCP',
@@ -118,6 +123,7 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
     });
     bankroll -= stake;
     colocadas++;
+    placedPicks.push({ matchId, market, sel: mejor.sel, odds: mejor.odds });
     console.log(`  ${playedOn}  partido ${matchId}  ${market}${line !== null ? ` (${line})` : ''}  ${mejor.sel} @ ${mejor.odds}  stake ${stake}  (${mejor.d.reason})`);
   };
 
@@ -237,6 +243,55 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
   if (dryRun) { console.log(`\n--dry-run: se habrían colocado ${colocadas} apuestas.`); return; }
   await runBatch(client, stmts, 'apuestas');
   console.log(`Apuestas simuladas colocadas: ${colocadas}`);
+
+  // "Oportunidades de cuotas": solo en modo Favorito — en modo Value (legado)
+  // esto notificaría exactamente las apuestas que docs/04 demostró que
+  // pierden más cuanto más "ventaja" declaran, lo último que hay que empujar
+  // a un teléfono como si fuera una buena noticia.
+  if (strategy === 'favorite' && placedPicks.length) {
+    await notifyOddsOpportunities(client, placedPicks);
+  }
+}
+
+const MARKET_LABEL: Record<string, string> = { ML: 'Ganador', TOTAL_GAMES: 'Total de juegos', GAMES_HCP: 'Hándicap de juegos' };
+
+/**
+ * Push de "oportunidades de cuotas": un aviso por corrida (no uno por pick,
+ * para no saturar) resumiendo los picks nuevos que el modo Favorito acaba de
+ * colocar. Sin tabla de dedup propia — cada pick ya es informacion nueva por
+ * construcción (colocarUna solo llega aquí con partidos que no tenían
+ * apuesta todavía, `on conflict do nothing` de por medio), así que no hace
+ * falta reclamar el evento aparte.
+ */
+async function notifyOddsOpportunities(
+  client: ReturnType<typeof db>,
+  picks: { matchId: number; market: string; sel: string; odds: number }[],
+): Promise<void> {
+  const ids = [...new Set(picks.map((p) => p.matchId))];
+  const rows = (await client.execute({
+    sql: `select m.id, p1.name p1_name, p2.name p2_name from matches m
+          join players p1 on p1.id = m.p1_id join players p2 on p2.id = m.p2_id
+          where m.id in (${ids.map(() => '?').join(',')})`,
+    args: ids,
+  })).rows;
+  const names = new Map(rows.map((r) => [Number(r.id), { p1: String(r.p1_name), p2: String(r.p2_name) }]));
+
+  const lineas = picks.map((p) => {
+    const n = names.get(p.matchId);
+    const jugador = n ? (p.sel === 'p1' ? n.p1 : p.sel === 'p2' ? n.p2 : `${n.p1}/${n.p2}`) : `partido ${p.matchId}`;
+    const seleccion = p.sel === 'over' ? 'Más' : p.sel === 'under' ? 'Menos' : jugador;
+    return `${jugador}${p.market !== 'ML' ? ` (${seleccion})` : ''} @ ${p.odds.toFixed(2)}`;
+  });
+
+  const title = picks.length === 1
+    ? `🎾 Nuevo pick: ${lineas[0]}`
+    : `🎾 ${picks.length} picks nuevos del simulador`;
+  const body = picks.length === 1
+    ? MARKET_LABEL[picks[0].market] ?? picks[0].market
+    : lineas.slice(0, 3).join(' · ') + (lineas.length > 3 ? ` · +${lineas.length - 3} más` : '');
+
+  const result = await broadcastPush('notify_odds', { title, body, url: '/paper-trading', tag: 'odds-opportunities' });
+  console.log(`Push "oportunidades de cuotas": ${result.sent}/${result.subscribers} enviados (${result.removed} caducadas, ${result.failed} fallos).`);
 }
 
 /** Marcador set por set, de perspectiva ganador (como se guarda) a p1/p2. Ver el mismo cálculo en getMatchDetail (src/lib/queries.ts). */

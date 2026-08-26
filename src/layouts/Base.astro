@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import Logo from '../components/Logo.astro';
+import PushSubscribeButton from '../components/PushSubscribeButton.tsx';
 
 interface Props {
   title?: string;
@@ -26,6 +27,20 @@ const nav = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content="Análisis y pronóstico de tenis ATP y WTA contrastado con el mercado." />
+
+    {/* PWA: manifest + iconos + metadatos de instalación. El registro del
+        service worker va al final del body (script inline más abajo) para no
+        competir con el resto de recursos por ancho de banda en el arranque. */}
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0c1017" />
+    <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/icons/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    {/* iOS ignora manifest.webmanifest para el modo "app instalada": estas tres
+        etiquetas son las únicas que Safari respeta para eso. */}
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Tenismo" />
   </head>
   <body class="min-h-dvh pb-20 lg:pb-0">
     <div class="mx-auto min-h-dvh max-w-[1500px] lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
@@ -50,13 +65,19 @@ const nav = [
           <p class="mt-2 text-sm font-medium text-ink">ATP · WTA · Challenger</p>
           <p class="mt-1 text-xs leading-relaxed text-ink-faint">Datos observados, modelo auditable y fuentes identificadas.</p>
         </div>
+        <div class="mt-3">
+          <PushSubscribeButton client:load />
+        </div>
       </aside>
 
       <div class="min-w-0">
         <header class="sticky top-0 z-40 border-b border-line/70 bg-bg/80 backdrop-blur-xl lg:hidden">
-          <div class="flex h-16 items-center justify-between px-4">
+          <div class="flex h-16 items-center justify-between gap-2 px-4">
             <a href="/" class="no-underline"><Logo class="h-8 w-auto" /></a>
-            <a href="#buscar" class="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted no-underline">Buscar</a>
+            <div class="flex items-center gap-2">
+              <PushSubscribeButton compact client:load />
+              <a href="#buscar" class="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted no-underline">Buscar</a>
+            </div>
           </div>
         </header>
 
@@ -84,5 +105,20 @@ const nav = [
         ]}><span class="text-base leading-none">{n.icon}</span><span class="truncate">{n.label}</span></a>
       ))}
     </nav>
+
+    <script>
+      // Registro del service worker (PWA + push) en todas las páginas.
+      // `PushSubscribeButton` también lo registra al montarse, pero eso solo
+      // pasa si React ya cargó ese componente — este script es la vía que
+      // garantiza el registro temprano, independiente de qué isla de React
+      // haya en la página.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.warn('[pwa] no se pudo registrar el service worker:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

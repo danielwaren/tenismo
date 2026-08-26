@@ -44,6 +44,11 @@ jobs:
       SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
       SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      # Los usa scripts/paper-trade.ts para el push de "oportunidades de
+      # cuotas" tras colocar picks nuevos en modo Favorito (src/lib/push.ts).
+      PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.PUBLIC_VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -117,9 +122,10 @@ jobs:
             npx tsx scripts/predict.ts
           fi
 
-      - name: Paper Trading (simulado, modo auditoría)
+      - name: Paper Trading (simulado, modo Favorito)
         # Coloca apuestas FICTICIAS sobre partidos con cuota real y liquida las
-        # ya resueltas. No ejecuta nada real ni habla con ninguna casa.
+        # ya resueltas. No ejecuta nada real ni habla con ninguna casa. Manda
+        # el push de "oportunidades de cuotas" si coloca picks nuevos.
         run: npx tsx scripts/paper-trade.ts
 
       - name: Evaluación contra el mercado

@@ -1,0 +1,66 @@
+name: Resumen diario (push)
+
+# Dos avisos push al día: uno al empezar la jornada (qué hay programado) y
+# otro al cerrarla (cómo salió). Horarios en UTC-4 aprox. (Chile) — sin
+# manejo fino de horario de verano; si hace falta más precisión, ajustar el
+# cron a mano más adelante.
+#
+# Secrets necesarios (los mismos SUPABASE_* de siempre, más VAPID):
+#   SUPABASE_DB_HOST, SUPABASE_DB_PORT, SUPABASE_DB_NAME, SUPABASE_DB_USER,
+#   SUPABASE_DB_PASSWORD, PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY,
+#   VAPID_SUBJECT
+
+on:
+  schedule:
+    - cron: '0 13 * * *'  # 09:00 Chile — resumen de la mañana
+    - cron: '0 2 * * *'   # 22:00 Chile (día anterior en UTC) — resumen de cierre
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'Qué resumen mandar'
+        type: choice
+        options: [morning, evening]
+        default: morning
+
+concurrency:
+  group: resumen-diario-supabase
+  cancel-in-progress: false
+
+jobs:
+  resumen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_DB_HOST: ${{ secrets.SUPABASE_DB_HOST }}
+      SUPABASE_DB_PORT: ${{ secrets.SUPABASE_DB_PORT }}
+      SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
+      SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.PUBLIC_VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # El disparo manual (workflow_dispatch) elige el modo con el input; el
+      # disparo por horario no tiene input, así que se decide por la hora UTC
+      # en la que corre ESTE run — coincide con el cron que lo lanzó porque
+      # cada cron de arriba dispara su propio run independiente.
+      - name: Decidir modo
+        id: modo
+        run: |
+          if [ -n "${{ inputs.modo }}" ]; then
+            echo "flag=--${{ inputs.modo }}" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%H)" = "13" ]; then
+            echo "flag=--morning" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=--evening" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mandar resumen
+        run: npx tsx scripts/notify-daily-summary.ts ${{ steps.modo.outputs.flag }}

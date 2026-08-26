@@ -28,6 +28,9 @@ jobs:
       SUPABASE_DB_NAME: ${{ secrets.SUPABASE_DB_NAME }}
       SUPABASE_DB_USER: ${{ secrets.SUPABASE_DB_USER }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.PUBLIC_VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,3 +40,5 @@ jobs:
       - run: npm ci
       - name: Refrescar torneos y marcadores en vivo (ESPN)
         run: npx tsx scripts/espn-ingest.ts
+      - name: Avisar partidos destacados que acaban de empezar (push)
+        run: npx tsx scripts/notify-live-matches.ts
