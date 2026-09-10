@@ -97,3 +97,45 @@ lanzó una excepción. Vale la pena que `ingesta-diaria.yml` compare
 explícitamente si un día normal no avanzó nada — el mismo espíritu que ya
 tiene el aviso de `datosViejos` en `index.astro`, pero aplicado al pipeline
 en vez de a la vista. No se implementó hoy por alcance, queda como pendiente.
+
+---
+
+## Segundo incidente, mismo patrón (sept 2026): cuota de The Odds API
+
+"El motor de simulación dejó de funcionar." Diagnóstico:
+
+- `odds` sin captura nueva desde el **2 sept**.
+- Última liquidación de apuestas: **26 ago**. 115 apuestas abiertas, 63 sobre
+  partidos ya jugados y sin liquidar.
+- 173 partidos completados sin `elo_applied`. 97 partidos "scheduled" con
+  fecha ya pasada (reconcile no corría).
+
+Causa: el plan gratis de The Odds API son **500 créditos/mes** y el US Open
+los agotó. `odds-ingest.ts` tiraba `throw` ante el `HTTP 401
+OUT_OF_USAGE_CREDITS`, y ese paso está en medio de `ingesta-diaria.yml`, así
+que todo lo de después (reconcile, elo, predict, **paper-trade**) dejó de
+correr. Exactamente el mismo patrón que el primer incidente: un fallo duro en
+un paso no crítico frena el pipeline entero.
+
+Fixes (commits `bc54d9d`, `2f71d4d`):
+1. `odds-ingest.ts`: cuota agotada = no-op explícito con warning, exit 0
+   (guarda proactiva por `x-requests-remaining` + reactiva por si se agota a
+   mitad). Igual que ya hacía ante "sin ODDS_API_KEY".
+2. `continue-on-error: true` en el paso de The Odds API del workflow — las
+   cuotas son "mejor esfuerzo una vez al día" y nunca deben poder frenar el
+   núcleo.
+3. Manual, para destapar: `reconcile.ts` (fusionó 61 partidos jugados),
+   `paper-trade.ts --settle-only` (liquidó 77 apuestas). El simulador quedó
+   al día. Los 173 partidos sin `elo_applied` los procesa el cron ya
+   destrabado (localmente `train-elo.ts` se cuelga en la escritura a Supabase
+   — el mismo problema de conexión del primer incidente, que en GitHub
+   Actions no aparece).
+
+**La lección refuerza la anterior**: `evaluate.ts` ya tenía `|| true`. Los
+otros pasos de ingesta de fuentes externas (`ingest` de temporada,
+`espn-ingest`, `odds-ingest`) deberían tener el mismo trato — una fuente
+caída no puede tumbar el pipeline. Hoy solo se hizo `odds-ingest`; los otros
+dos quedan pendientes.
+
+**Costo pendiente de decisión**: la cuota de The Odds API. Ver
+[docs/15](./15-monetizacion.md) §"Costo YA presente".
