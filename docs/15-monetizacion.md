@@ -77,3 +77,30 @@ auth en la web.
 4. Cualquiera sea el camino: los ingresos que se destinen a APIs de pago
    (Sportradar full, por ejemplo) son una decisión de presupuesto separada,
    no algo que este código automatice.
+
+## Costo YA presente: The Odds API (sept 2026)
+
+El plan gratis de [The Odds API](https://the-odds-api.com/#get-access) son
+**500 créditos/mes**. Cada corrida diaria pide `h2h,totals,spreads` (3
+mercados) × `eu` (1 región) = **3 créditos por torneo**; con ATP + WTA de un
+Slam activo son 6/día ≈ 180/mes, holgado. Pero en sept 2026 la cuota se
+agotó igual (posiblemente por semanas con más torneos cubiertos, corridas
+manuales, o el ciclo del plan no alineado al mes calendario) — y `odds-ingest.ts`
+tiraba un 401 duro que **frenaba todo el pipeline diario** (ver
+[docs/16](./16-incidente-pronosticos-y-fixes.md)). Ya está arreglado para que
+sea un no-op, pero el simulador se queda sin cuotas frescas hasta que se
+restablezca.
+
+Opciones, de menos a más plata:
+- **Bajar el costo por corrida**: pedir solo `h2h` (1 crédito) en vez de los 3
+  mercados. El simulador perdería los mercados de Total de Juegos y Hándicap
+  (se quedaría solo con Ganador), pero triplica el margen de cuota. Cambio de
+  una línea en `scripts/lib/odds-api.ts::fetchOdds` (`markets=h2h`).
+- **Pedir cuotas cada 2-3 días** en vez de a diario para partidos que ya
+  tienen cuota y están a >48h — la cuota de cierre es lo que importa para el
+  CLV, no las capturas intermedias.
+- **Subir de plan**: The Odds API arranca en ~USD 30/mes (20.000 créditos).
+  Este es exactamente el tipo de gasto que la monetización tendría que cubrir.
+- **Otra fuente**: si al final se paga Sportradar (que ya se usa para el
+  calendario Challenger), verificar si su plan incluye cuotas de tenis y
+  consolidar en un solo proveedor.
