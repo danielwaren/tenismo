@@ -136,25 +136,39 @@ export async function fetchSports(apiKey: string): Promise<{ sports: OddsApiSpor
 }
 
 /**
- * Cuotas de un torneo: ganador (h2h), total de juegos (totals) y hándicap de
- * juegos (spreads). VERIFICADO CONTRA LA API REAL (no solo documentación): los
- * tres existen para tenis — 32 eventos de prueba, hasta 17 casas cada uno.
- * `totals`/`spreads`/`outrights` cuestan 1 crédito cada uno por combinación de
- * region (ver la cabecera del fichero); pedir los tres juntos en una sola
- * llamada sale más barato que tres llamadas sueltas.
+ * Mercados que se piden por defecto. CUESTAN 1 CRÉDITO CADA UNO por región
+ * (ver la cabecera del fichero), así que esta lista es directamente el gasto
+ * por torneo y por corrida.
+ *
+ * `spreads` (hándicap de juegos) NO va por defecto desde sept 2026, y no es
+ * por plata sino por evidencia: sobre 400 partidos, el motor punto a punto
+ * acierta el 51,2% en algo tan básico como quién gana más juegos — una moneda
+ * al aire. Apostar hándicaps con esa señal a cuota ~1,95 es perder el margen
+ * garantizado, y así fue: 37G/132P (21,9%) en el lado "da juegos". El mercado
+ * NO se elimina — el código, las apuestas históricas y la ficha del partido
+ * siguen igual; solo se deja de pedir cuota nueva hasta tener una señal de
+ * margen que valga. Para reactivarlo: ODDS_API_MARKETS=h2h,totals,spreads
+ * (+1 crédito por torneo y corrida).
  *
  * NO hay mercado de sets ni de aces: se pidieron expresamente y la API los
  * rechazó como "Invalid markets". Por eso el Paper Trading solo cubre
  * Ganador y Juegos — Set y Aces se quedan en proyección informativa, sin
  * cuota real con la que compararlos.
  */
+export const DEFAULT_ODDS_MARKETS = 'h2h,totals';
+
+export function oddsMarkets(): string {
+  return (process.env.ODDS_API_MARKETS || DEFAULT_ODDS_MARKETS).trim();
+}
+
 export async function fetchOdds(
   apiKey: string,
   sportKey: string,
   regions = 'eu',
+  markets = oddsMarkets(),
 ): Promise<{ events: OddsApiEvent[]; quota: QuotaInfo }> {
   const url = `${ODDS_API_BASE}/sports/${sportKey}/odds/` +
-    `?apiKey=${apiKey}&regions=${regions}&markets=h2h,totals,spreads&oddsFormat=decimal&dateFormat=iso`;
+    `?apiKey=${apiKey}&regions=${regions}&markets=${encodeURIComponent(markets)}&oddsFormat=decimal&dateFormat=iso`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`the-odds-api ${sportKey}: HTTP ${res.status} ${await res.text().catch(() => '')}`);
   return { events: (await res.json()) as OddsApiEvent[], quota: quotaFrom(res) };

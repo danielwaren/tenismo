@@ -20,7 +20,7 @@ import { loadEnv } from './lib/env';
 import { runBatch } from './lib/batch';
 import {
   fetchSports, fetchOdds, consensusFromEvent, totalsFromEvent, spreadsFromEvent,
-  tourFromSportKey, TOURNAMENT_INFO, tournamentNameFromKey, type ConsensusLine,
+  tourFromSportKey, TOURNAMENT_INFO, tournamentNameFromKey, oddsMarkets, type ConsensusLine,
 } from './lib/odds-api';
 import { buildIndex, resolvePlayer } from '../src/lib/players';
 
@@ -52,7 +52,10 @@ async function main() {
   // 1) Qué torneos están activos. Gratis.
   const { sports, quota } = await fetchSports(apiKey);
   const activos = sports.filter((s) => s.key.startsWith('tennis') && s.active);
+  const markets = oddsMarkets();
   console.log(`Cuota API: ${quota.remaining ?? '?'} créditos restantes (usados ${quota.used ?? '?'}).`);
+  console.log(`Mercados pedidos: ${markets} (${markets.split(',').length} crédito/s por torneo).` +
+    (markets.includes('spreads') ? '' : ' Hándicap de juegos PAUSADO — ver DEFAULT_ODDS_MARKETS en lib/odds-api.ts.'));
   console.log(`Torneos de tenis activos: ${activos.length}${activos.length ? ' — ' + activos.map((s) => s.key).join(', ') : ''}`);
 
   if (!activos.length) {
@@ -74,8 +77,8 @@ async function main() {
       'Cuota de The Odds API agotada (0 créditos). No se piden cuotas hoy — ' +
         'el simulador seguirá con las últimas cuotas que tenga. Se restablece al ' +
         'inicio del ciclo mensual del plan; para no depender de eso, subir de plan ' +
-        '(ver docs/15-monetizacion.md) o bajar el coste por corrida (solo h2h en vez ' +
-        'de h2h,totals,spreads).',
+        '(ver docs/15-monetizacion.md) o bajar el coste por corrida con ' +
+        `ODDS_API_MARKETS (ahora: ${markets}).`,
     );
     return;
   }

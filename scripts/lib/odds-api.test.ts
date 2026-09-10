@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   consensusFromEvent, tourFromSportKey, tournamentNameFromKey, TOURNAMENT_INFO,
-  totalsFromEvent, spreadsFromEvent,
+  totalsFromEvent, spreadsFromEvent, oddsMarkets, DEFAULT_ODDS_MARKETS,
   type OddsApiEvent,
 } from './odds-api';
 import { buildIndex, resolvePlayer, candidateSlugs } from '../../src/lib/players';
@@ -220,5 +220,29 @@ describe('totalsFromEvent / spreadsFromEvent', () => {
     // El lado Over quedó sin ninguna cuota válida -> la línea no tiene los dos
     // lados y se descarta entera.
     expect(totalsFromEvent(roto)).toBeNull();
+  });
+});
+
+describe('mercados pedidos (coste de la cuota)', () => {
+  const original = process.env.ODDS_API_MARKETS;
+  afterEach(() => {
+    if (original === undefined) delete process.env.ODDS_API_MARKETS;
+    else process.env.ODDS_API_MARKETS = original;
+  });
+
+  it('por defecto pide h2h,totals — sin spreads (hándicap pausado, no eliminado)', () => {
+    delete process.env.ODDS_API_MARKETS;
+    expect(oddsMarkets()).toBe('h2h,totals');
+    expect(DEFAULT_ODDS_MARKETS).not.toContain('spreads');
+  });
+
+  it('el hándicap se reactiva por variable de entorno, sin tocar código', () => {
+    process.env.ODDS_API_MARKETS = 'h2h,totals,spreads';
+    expect(oddsMarkets()).toBe('h2h,totals,spreads');
+  });
+
+  it('una variable vacía cae al valor por defecto', () => {
+    process.env.ODDS_API_MARKETS = '';
+    expect(oddsMarkets()).toBe(DEFAULT_ODDS_MARKETS);
   });
 });

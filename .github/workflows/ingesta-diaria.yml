@@ -101,6 +101,9 @@ jobs:
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
+          # Vacío = h2h,totals (2 créditos/torneo). Poner 'h2h,totals,spreads'
+          # para reactivar el hándicap de juegos (+1 crédito).
+          ODDS_API_MARKETS: ${{ secrets.ODDS_API_MARKETS }}
         run: npx tsx scripts/odds-ingest.ts
 
       - name: Reconciliar programados con jugados
