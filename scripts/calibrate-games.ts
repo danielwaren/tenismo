@@ -170,26 +170,41 @@ async function main() {
   fila('corrección lineal', errLin);
 
   // ── Lo que de verdad importa: ¿queda calibrado probOver? ───────────────────
-  // Se evalúa en la línea .5 más cercana a la media del motor, que es donde
-  // el mercado suele poner el total. Si el motor estuviera calibrado, decir
-  // "60% over" tendría que acertar el 60% de las veces.
-  const binsDe = (corr: number): BinaryOutcome[] =>
-    test.map((o) => ({
-      // Con el motor sesgado +b juegos, preguntar P(real > L) es preguntarle
-      // al motor P(sim > L + b).
-      prob: o.probOverEn(o.linea + corr),
-      actual: (o.actual > o.linea ? 1 : 0) as 0 | 1,
-    }));
+  //
+  // La línea se pone donde la pondría el MERCADO: cerca de la media real
+  // esperada, no de la del motor. Usar la media del motor sesgaría la prueba
+  // a su favor — el mercado no le regala la línea que él quiere. Se usa la
+  // estimación lineal (α + β·sim), que es la mejor aproximación disponible a
+  // esa media real, redondeada al .5 de mercado.
+  //
+  // Tres formas de preguntarle al motor P(real > L):
+  //   crudo    → probOver(L)               (lo que hace hoy)
+  //   aditivo  → probOver(L + b)           (corrige el CENTRO)
+  //   lineal   → probOver((L − α) / β)     (corrige centro Y escala)
+  // La lineal es la única que también arregla la ANCHURA de la distribución,
+  // y β < 1 significa que el motor exagera la dispersión.
+  const conLinea = test.map((o) => {
+    const L = Math.round((alfa + beta * o.simMean) * 2) / 2;
+    return { o, L, actual: (o.actual > L ? 1 : 0) as 0 | 1 };
+  });
 
-  for (const [nombre, corr] of [['SIN corregir', 0], ['CON corrección aditiva', sesgo]] as const) {
-    const rows2 = binsDe(corr);
+  const variantes: [string, (o: Obs, L: number) => number][] = [
+    ['crudo (hoy)', (o, L) => o.probOverEn(L)],
+    ['aditivo', (o, L) => o.probOverEn(L + sesgo)],
+    ['lineal', (o, L) => o.probOverEn((L - alfa) / beta)],
+  ];
+
+  for (const [nombre, f] of variantes) {
+    const rows2: BinaryOutcome[] = conLinea.map(({ o, L, actual }) => ({ prob: f(o, L), actual }));
     const overs = rows2.filter((r) => r.actual === 1).length;
     const predicho = media(rows2.map((r) => r.prob));
-    console.log(`\n  probOver en la línea del motor — ${nombre}`);
-    console.log(`    predicho medio ${(predicho * 100).toFixed(1)}%   ·   observado ${((overs / rows2.length) * 100).toFixed(1)}%   (n=${rows2.length})`);
+    // Error de calibración medio ponderado por muestra (ECE).
+    const bins = reliabilityBins(rows2, 10).filter((b) => b.count > 0);
+    const ece = bins.reduce((a, b) => a + (b.count / rows2.length) * Math.abs(b.observed - b.meanPredicted), 0);
+    console.log(`\n  probOver en la línea de MERCADO — ${nombre}`);
+    console.log(`    predicho medio ${(predicho * 100).toFixed(1)}%   ·   observado ${((overs / rows2.length) * 100).toFixed(1)}%   ·   ECE ${(ece * 100).toFixed(2)}pp   (n=${rows2.length})`);
     console.log('    rango      n    predicho  observado   desvío');
-    for (const b of reliabilityBins(rows2, 10)) {
-      if (!b.count) continue;
+    for (const b of bins) {
       const d = b.observed - b.meanPredicted;
       console.log(`    ${b.from.toFixed(1)}-${b.to.toFixed(1)} ${String(b.count).padStart(6)}    ${b.meanPredicted.toFixed(3)}     ${b.observed.toFixed(3)}   ${d >= 0 ? '+' : ''}${d.toFixed(3)}`);
     }

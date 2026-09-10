@@ -30,6 +30,7 @@ import { runBatch } from './lib/batch';
 import { getMarkovInputs } from '../src/lib/queries';
 import {
   decideBet, decideFavorite, edge as computeEdge, devigTwoWay, settleProfit, clv, simulateMatch,
+  calibratedProbOver,
   type StakeRules, type FavoriteRules,
 } from '@tti/model';
 import { broadcastPush } from '../src/lib/push';
@@ -219,7 +220,10 @@ async function colocar(client: ReturnType<typeof db>, dryRun: boolean) {
       const fair = devigTwoWay(Number(r.fair_over), Number(r.fair_under));
       if (fair) {
         const line = Number(r.t_line);
-        const pOver = sim.probOver(line);
+        // Calibrado: el motor crudo predice ~1,9 juegos de más y exagera la
+        // dispersión, así que sin corregir decía "over" casi siempre (334 de
+        // 343 apuestas, 167G/167P). Ver GAMES_CALIBRATION en markov.ts.
+        const pOver = calibratedProbOver(sim, line);
         colocarUna(matchId, String(r.played_on), 'TOTAL_GAMES', line, [
           { sel: 'over', modelProb: pOver, odds: Number(r.ex_over), devigedProb: fair.p1, book: String(r.t_book) },
           { sel: 'under', modelProb: 1 - pOver, odds: Number(r.ex_under), devigedProb: fair.p2, book: String(r.t_book) },

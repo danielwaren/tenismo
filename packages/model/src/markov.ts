@@ -278,6 +278,54 @@ export interface MatchSimulation {
 }
 
 /**
+ * CALIBRACIÓN DEL TOTAL DE JUEGOS (sept 2026).
+ *
+ * El motor predice de MÁS, y bastante: sobre 7.482 partidos con walk-forward
+ * real (perfil de saque previo al partido, sin look-ahead) la media simulada
+ * es 28,06 juegos contra 26,10 reales. Ajustado en 2023-2024 y validado en
+ * 2025-2026 —jamás usado para ajustar— el sesgo se sostiene: +1,95 en train,
+ * +1,86 en test. No es ruido, es un defecto sistemático.
+ *
+ *   real ≈ ALFA + BETA · simulado
+ *
+ * BETA < 1 dice que además EXAGERA LA DISPERSIÓN ~16%: no solo corre el
+ * centro, también reparte demasiada probabilidad en la cola alta. Por eso la
+ * corrección es lineal y no una simple resta — la resta arregla el centro y
+ * deja el 6,4pp de error de calibración; la lineal lo baja a 5,7pp.
+ *
+ * Reproducir: `npx tsx scripts/calibrate-games.ts`. Ese script no escribe
+ * nada; estos dos números son el resultado que sí se aplica.
+ *
+ * LO QUE ESTA CORRECCIÓN NO ARREGLA: el motor sigue sin poder ORDENAR qué
+ * partidos van over — en el test los tramos de probabilidad no salen
+ * monótonos (0,4-0,5 observa 42,9% y 0,5-0,6 observa 41,8%). Sirve para que
+ * los números que se publican sean honestos, no para afirmar que hay ventaja
+ * sobre el mercado de totales.
+ */
+export const GAMES_CALIBRATION = { alfa: 2.58, beta: 0.8384 } as const;
+
+/** Media de juegos corregida por la calibración medida. */
+export function calibratedMeanGames(
+  simMeanGames: number,
+  cal: { alfa: number; beta: number } = GAMES_CALIBRATION,
+): number {
+  return cal.alfa + cal.beta * simMeanGames;
+}
+
+/**
+ * P(juegos reales > line) usando la calibración. Si `real ≈ α + β·sim`,
+ * entonces P(real > L) = P(sim > (L − α) / β): la línea se traduce al espacio
+ * del simulador antes de preguntarle.
+ */
+export function calibratedProbOver(
+  sim: Pick<MatchSimulation, 'probOver'>,
+  line: number,
+  cal: { alfa: number; beta: number } = GAMES_CALIBRATION,
+): number {
+  return sim.probOver((line - cal.alfa) / cal.beta);
+}
+
+/**
  * Distribución de juegos del partido completo por Monte Carlo, simulando set a
  * set con las probabilidades exactas de `gameProb`/`tiebreakProb`.
  *

@@ -3,6 +3,7 @@ import {
   gameProb, tiebreakProb, setWinProb,
   matchProbBestOf3, matchProbBestOf5, matchWinProb, logit, markovLogit,
   shrinkRate, estimateServeProb, DEFAULT_SERVE_KAPPA, simulateMatch,
+  calibratedMeanGames, calibratedProbOver, GAMES_CALIBRATION,
 } from '../src/markov';
 
 describe('gameProb', () => {
@@ -247,5 +248,42 @@ describe('simulateMatch', () => {
     const bo3 = simulateMatch(0.65, 0.6, 3);
     const bo5 = simulateMatch(0.65, 0.6, 5);
     expect(bo5.meanGames).toBeGreaterThan(bo3.meanGames);
+  });
+});
+
+describe('calibración del total de juegos', () => {
+  it('corrige la media hacia abajo: el motor predice de más', () => {
+    // Medido sobre 7.482 partidos walk-forward: sim 28,06 → real 26,10.
+    expect(calibratedMeanGames(28.06)).toBeCloseTo(26.10, 1);
+    // Siempre por debajo del crudo en el rango normal de un partido.
+    for (const sim of [20, 24, 28, 32, 40]) {
+      expect(calibratedMeanGames(sim)).toBeLessThan(sim);
+    }
+  });
+
+  it('comprime la dispersión (beta < 1): dos partidos lejanos se acercan', () => {
+    expect(GAMES_CALIBRATION.beta).toBeLessThan(1);
+    const crudo = 34 - 22;
+    const cal = calibratedMeanGames(34) - calibratedMeanGames(22);
+    expect(cal).toBeLessThan(crudo);
+    expect(cal).toBeCloseTo(crudo * GAMES_CALIBRATION.beta, 6);
+  });
+
+  it('probOver calibrado traduce la línea al espacio del simulador', () => {
+    // Simulador de juguete: P(sim > x) = 1 si x < 25, si no 0.
+    const sim = { probOver: (x: number) => (x < 25 ? 1 : 0) };
+    const { alfa, beta } = GAMES_CALIBRATION;
+    // Una línea L se consulta como (L − α)/β.
+    const fronteraReal = alfa + beta * 25; // la L donde (L−α)/β = 25
+    expect(calibratedProbOver(sim, fronteraReal - 0.5)).toBe(1);
+    expect(calibratedProbOver(sim, fronteraReal + 0.5)).toBe(0);
+  });
+
+  it('es más pesimista con los over que el motor crudo, que era el problema', () => {
+    const sim = simulateMatch(0.65, 0.62, 3, 4000);
+    const linea = Math.round(sim.meanGames * 2) / 2;
+    // Sin corregir el motor decía ~50% en su propia media; corregido tiene que
+    // decir bastante menos, porque su media está ~2 juegos alta.
+    expect(calibratedProbOver(sim, linea)).toBeLessThan(sim.probOver(linea));
   });
 });

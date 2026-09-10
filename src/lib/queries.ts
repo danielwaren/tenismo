@@ -5,6 +5,7 @@ import {
   FEATURE_NAMES, estimateMatchAces, MIN_SERVE_GAMES, estimateServeProb,
   simulateMatch, matchWinProb, contributionsToWaterfall, computeConfidence,
   evaluateMarket, acesAtLeastBreakdown, totalAcesOverUnder,
+  calibratedProbOver, GAMES_CALIBRATION,
   type BinaryOutcome, type FeatureName, type ServeProfile, type MatchAceEstimate,
   type ProbabilityWaterfall, type ConfidenceResult, type MarketComparisonResult,
   type ExpectedGamesDistribution, type ExpectedAcesDistribution,
@@ -1549,21 +1550,30 @@ export async function getMatchDetail(id: number): Promise<MatchDetail | null> {
   if (mk) {
     const sim = simulateMatch(mk.pa, mk.pb, mk.bestOf);
     const lines = mk.bestOf === 5 ? [30.5, 33.5, 36.5, 39.5, 42.5] : [19.5, 20.5, 21.5, 22.5, 23.5, 24.5];
+    // Calibrado: el motor crudo predice ~1,9 juegos de más y exagera la
+    // dispersión — publicar sus números tal cual era decirle al usuario un
+    // total sistemáticamente alto. Ver GAMES_CALIBRATION en markov.ts.
     const overUnder = lines.map((line) => {
-      const over = sim.probOver(line);
+      const over = calibratedProbOver(sim, line);
       return { line, over, under: 1 - over };
     });
+    // Histograma, media, dispersión y percentiles salen TODOS de la muestra ya
+    // calibrada, para que no se contradigan entre sí (la tabla de over/under de
+    // arriba también está calibrada). Se redondea porque un histograma de
+    // juegos tiene que caer en enteros.
+    const calibrados = sim.totalGames.map((g) => Math.max(0, Math.round(GAMES_CALIBRATION.alfa + GAMES_CALIBRATION.beta * g)));
     const counts = new Map<number, number>();
-    for (const g of sim.totalGames) counts.set(g, (counts.get(g) ?? 0) + 1);
+    for (const g of calibrados) counts.set(g, (counts.get(g) ?? 0) + 1);
     const histogram = [...counts.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([games, n]) => ({ games, probability: n / sim.totalGames.length }));
-    const sorted = [...sim.totalGames].sort((a, b) => a - b);
+      .map(([games, n]) => ({ games, probability: n / calibrados.length }));
+    const sorted = [...calibrados].sort((a, b) => a - b);
     const pctl = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+    const mediaCal = calibrados.reduce((a, b) => a + b, 0) / calibrados.length;
     expectedGames = {
       bestOf: mk.bestOf ?? 3,
-      meanGames: sim.meanGames,
-      sdGames: sim.sdGames,
+      meanGames: mediaCal,
+      sdGames: Math.sqrt(calibrados.reduce((a, g) => a + (g - mediaCal) ** 2, 0) / calibrados.length),
       rangeLow: pctl(0.25),
       rangeHigh: pctl(0.75),
       overUnder,
