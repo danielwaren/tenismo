@@ -223,7 +223,7 @@ async function main() {
       -- quedaban con esa fuente para siempre porque tennis-data.co.uk nunca
       -- llegó a publicarlos — sin entrar aquí, esos resultados no actualizan
       -- NINGÚN rating ni generan predicción, silenciosamente, para siempre.
-      and m.source in ('tennis-data', 'tennis-abstract', 'espn', 'the-odds-api')
+      and m.source in ('tennis-data', 'tennis-abstract', 'espn', 'the-odds-api', 'odds-api-io')
     order by m.played_on, m.id
   `);
   console.log(`Partidos a procesar: ${pending.rows.length}`);

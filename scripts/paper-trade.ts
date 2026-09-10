@@ -358,7 +358,8 @@ async function liquidar(client: ReturnType<typeof db>, dryRun: boolean) {
 
     // Cuota de cierre: la de tennis-data (Pinnacle) es la de cierre REAL para
     // ML; para TOTAL_GAMES/GAMES_HCP tennis-data no tiene esos mercados, así
-    // que el CLV solo se mide contra la última captura de The Odds API.
+    // que el CLV solo se mide contra la última captura de la fuente pre-partido
+    // (The Odds API o odds-api.io, ver docs/15).
     const cierre = (await client.execute({
       // `line is not distinct from ?` y no `line is ?`: en SQLite `IS` con un
       // parámetro es la igualdad que trata NULL como un valor más, pero en
@@ -372,7 +373,7 @@ async function liquidar(client: ReturnType<typeof db>, dryRun: boolean) {
       sql: `select odds from odds
             where match_id = ? and market = ? and selection = ?
               and (line is not distinct from ?::double precision or ?::double precision is null)
-              and (bookmaker = 'pinnacle' or source = 'the-odds-api')
+              and (bookmaker = 'pinnacle' or source in ('the-odds-api', 'odds-api-io'))
             order by case when bookmaker = 'pinnacle' then 0 else 1 end, captured_at desc
             limit 1`,
       args: [

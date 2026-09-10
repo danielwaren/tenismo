@@ -91,16 +91,39 @@ tiraba un 401 duro que **frenaba todo el pipeline diario** (ver
 sea un no-op, pero el simulador se queda sin cuotas frescas hasta que se
 restablezca.
 
-Opciones, de menos a más plata:
-- **Bajar el costo por corrida**: pedir solo `h2h` (1 crédito) en vez de los 3
-  mercados. El simulador perdería los mercados de Total de Juegos y Hándicap
-  (se quedaría solo con Ganador), pero triplica el margen de cuota. Cambio de
-  una línea en `scripts/lib/odds-api.ts::fetchOdds` (`markets=h2h`).
-- **Pedir cuotas cada 2-3 días** en vez de a diario para partidos que ya
-  tienen cuota y están a >48h — la cuota de cierre es lo que importa para el
-  CLV, no las capturas intermedias.
-- **Subir de plan**: The Odds API arranca en ~USD 30/mes (20.000 créditos).
-  Este es exactamente el tipo de gasto que la monetización tendría que cubrir.
-- **Otra fuente**: si al final se paga Sportradar (que ya se usa para el
-  calendario Challenger), verificar si su plan incluye cuotas de tenis y
-  consolidar en un solo proveedor.
+### Solución aplicada: se cambió a odds-api.io (sept 2026)
+
+[odds-api.io](https://odds-api.io/pricing/free) plan gratis: **100 requests/
+hora, 500/día** (contra 500/**mes** de The Odds API), sin tarjeta, sin
+caducidad — y cubre **Challenger e ITF**, que The Odds API no. Con ~40
+partidos activos son ~5 requests por corrida (`/events` + `/odds/multi` en
+lotes de 10), así que 500/día sobra de largo.
+
+Contra: solo 2 casas "recreativas" en el plan gratis (sin Pinnacle), así que
+el consenso devigado es menos fino. Para el modo Favorito —que solo necesita
+saber quién es el favorito del mercado— alcanza. `devigTwoWay` reparte el
+overround igual, así que la estimación sigue siendo razonable aunque los
+márgenes sean mayores.
+
+**Cómo activarlo (para el dueño del sitio):**
+1. Crear cuenta gratis en https://odds-api.io (sin tarjeta) y copiar la API key.
+2. `ODDS_API_IO_KEY=<key>` en `.env` local, en Vercel (Settings → Environment
+   Variables) y en GitHub → Settings → Secrets → Actions. Mismo patrón que las
+   VAPID ([docs/14](./14-notificaciones-push.md)).
+3. Probar primero: `npx tsx scripts/odds-ingest-io.ts --dry-run` — imprime qué
+   trajo sin escribir nada. Si la forma del JSON de la API difiere de la
+   documentada, el error sale ahí y se ajusta `scripts/lib/odds-api-io.ts`.
+4. Con la key puesta, `odds-ingest.ts` (The Odds API) se salta solo. El
+   workflow ya corre `odds-ingest-io.ts` primero.
+
+The Odds API queda como **fallback**: si se quita `ODDS_API_IO_KEY` y está
+`ODDS_API_KEY`, vuelve a usarse.
+
+### Otras opciones (por si odds-api.io no alcanza)
+
+- **Betfair Exchange API** — app key gratis, precio de exchange = consenso real
+  sin margen de casa, una sola API estable. Necesita cuenta de Betfair.
+- **Scrapear betexplorer.com** — misma empresa que tennisexplorer.com (ya se
+  scrapea para Challenger). Gratis, sin cuenta, frágil.
+- **Subir de plan** (odds-api.io o The Odds API, ~USD 30/mes) — el gasto que la
+  monetización tendría que cubrir.

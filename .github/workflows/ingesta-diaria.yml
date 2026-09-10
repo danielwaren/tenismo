@@ -79,21 +79,28 @@ jobs:
         # que The Odds API no cubre), su calendario y los marcadores en vivo.
         run: npx tsx scripts/espn-ingest.ts
 
-      - name: Cuotas de partidos futuros (The Odds API)
-        # Solo para el Paper Trading: cuotas reales de torneos cubiertos. Sin
-        # ODDS_API_KEY es un no-op; en semanas sin torneos cubiertos no gasta
-        # ni un crédito. NO es la fuente de calendario (eso lo da ESPN).
+      - name: Cuotas de partidos futuros (odds-api.io)
+        # Fuente ACTUAL de cuotas pre-partido (reemplazó a The Odds API en
+        # sept 2026 — ver docs/15). Cubre ATP/WTA/Challenger. Sin
+        # ODDS_API_IO_KEY es un no-op explícito.
         #
-        # continue-on-error: las cuotas son "mejor esfuerzo, una vez al día".
+        # continue-on-error: las cuotas son "mejor esfuerzo, una vez al día" y
         # NUNCA deben poder frenar lo de después (reconcile, elo, predict,
-        # paper-trade), que es el núcleo del sitio. El script ya sale limpio
-        # ante cuota agotada / sin key / sin torneos; esto cubre además un
-        # fallo inesperado de la API (500, red, respuesta rara). Así pasó en
-        # sept 2026: el 401 por cuota agotada del US Open frenó todo el
-        # pipeline durante días.
+        # paper-trade). Así pasó en sept 2026: el 401 por cuota agotada de The
+        # Odds API frenó todo el pipeline durante días.
+        continue-on-error: true
+        env:
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
+          ODDS_API_IO_BOOKMAKERS: ${{ secrets.ODDS_API_IO_BOOKMAKERS }}
+        run: npx tsx scripts/odds-ingest-io.ts
+
+      - name: Cuotas de partidos futuros (The Odds API — fallback)
+        # Solo corre si NO hay ODDS_API_IO_KEY (el script se salta solo si la
+        # hay). Se deja como respaldo por si odds-api.io falla.
         continue-on-error: true
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          ODDS_API_IO_KEY: ${{ secrets.ODDS_API_IO_KEY }}
         run: npx tsx scripts/odds-ingest.ts
 
       - name: Reconciliar programados con jugados

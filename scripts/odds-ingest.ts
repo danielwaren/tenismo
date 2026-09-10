@@ -33,6 +33,14 @@ async function main() {
   const dryRun = hasFlag('dry-run');
   const apiKey = process.env.ODDS_API_KEY;
 
+  // odds-api.io reemplazó a The Odds API como fuente de cuotas (sept 2026, ver
+  // docs/15-monetizacion.md). Si su key está, este paso se salta entero — así
+  // no hay dos fuentes creando filas 'scheduled' para el mismo partido.
+  if (process.env.ODDS_API_IO_KEY) {
+    console.log('ODDS_API_IO_KEY presente: la fuente de cuotas es odds-api.io (scripts/odds-ingest-io.ts). Este paso se salta.');
+    return;
+  }
+
   if (!apiKey) {
     console.log(
       'Sin ODDS_API_KEY: no se hace nada.\n' +
