@@ -53,6 +53,25 @@ async function main() {
     return;
   }
 
+  // Cuota mensual agotada (plan gratis: 500 créditos/mes). Se trata igual que
+  // "sin ODDS_API_KEY": un no-op explícito, NUNCA un crash. El resto del
+  // pipeline diario (reconcile, elo, predict, paper-trade) pesa más que tener
+  // cuotas frescas — un fallo duro aquí lo frena todo, y así fue como "el
+  // motor de simulación dejó de funcionar" en sept 2026 (US Open se comió la
+  // cuota; `fetchOdds` tiraba 401 y con él la reconciliación y las
+  // liquidaciones del simulador). `x-requests-remaining` viene de /sports,
+  // que es gratis, así que esto se sabe ANTES de gastar nada.
+  if (quota.remaining !== null && quota.remaining <= 0) {
+    console.warn(
+      'Cuota de The Odds API agotada (0 créditos). No se piden cuotas hoy — ' +
+        'el simulador seguirá con las últimas cuotas que tenga. Se restablece al ' +
+        'inicio del ciclo mensual del plan; para no depender de eso, subir de plan ' +
+        '(ver docs/15-monetizacion.md) o bajar el coste por corrida (solo h2h en vez ' +
+        'de h2h,totals,spreads).',
+    );
+    return;
+  }
+
   // 2) Índices de jugadores por circuito.
   const indices: Record<string, ReturnType<typeof buildIndex>> = {};
   const aliasMaps: Record<string, Map<string, number>> = {};
@@ -96,7 +115,19 @@ async function main() {
       console.log(`  ! ${sport.key}: torneo desconocido, superficie sin determinar (el modelo usará solo el Elo global)`);
     }
 
-    const { events, quota: q } = await fetchOdds(apiKey, sport.key);
+    let events, q;
+    try {
+      ({ events, quota: q } = await fetchOdds(apiKey, sport.key));
+    } catch (e) {
+      // Cuota agotada A MITAD de la corrida (p. ej. remaining=1 y dos torneos):
+      // se sale con lo que se haya conseguido, no se rompe el pipeline.
+      const msg = (e as Error).message;
+      if (/OUT_OF_USAGE_CREDITS|HTTP 401|quota/i.test(msg)) {
+        console.warn(`  Cuota agotada en ${sport.key} — se corta acá y se guarda lo obtenido hasta ahora.`);
+        break;
+      }
+      throw e; // cualquier otro fallo sí es un problema real
+    }
     gastados += q.lastCost ?? 1;
     console.log(`  ${sport.key}: ${events.length} eventos (coste ${q.lastCost ?? '?'} crédito/s)`);
 
