@@ -171,7 +171,14 @@ function getSql(): postgres.Sql {
     // éxito. 10s de inactividad es de sobra para el hueco entre queries de un
     // fetch a una API externa (ESPN, tennis-data) sin mantener el proceso vivo
     // después del último query real.
-    idle_timeout: 10,
+    //
+    // Override por env: `train-elo.ts` tiene una fase de CÓMPUTO larga (el
+    // walk-forward + las simulaciones Markov de los programados) sin tocar la
+    // base — si dura más de 10s, la conexión se cierra y la reapertura para
+    // el batch de escritura a veces se cuelga contra el pooler de Supabase
+    // (visto en local, sept 2026). Subir `SUPABASE_IDLE_TIMEOUT` para esas
+    // corridas evita disparar ese camino. En un cron normal 10 está bien.
+    idle_timeout: Number(process.env.SUPABASE_IDLE_TIMEOUT ?? 10),
     // Recicla cada conexión del pool cada 30 min aunque siga en uso. Defensa
     // contra conexiones que el pooler de Supabase (Supavisor, modo
     // transacción) da por muertas de su lado sin avisarle a postgres.js —
